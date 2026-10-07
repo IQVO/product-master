@@ -12,7 +12,8 @@ Federation remote, or when standing up a NEW remote for a bounded context
 that doesn't have one yet. This is the Vite/React micro-frontend layer
 that `warehouse-console` (the shell) lazy-loads — see that repo's
 .claude/rules/mfe-remotes.md for the shell-side half of this contract.
-product-master has no web/ remote yet (a later brief adds it).
+This repo's remote is `productmaster_mfe` (see `.claude/rules/frontend.md` for
+the pinned names, port 5191 and mount path).
 
 ## `vite.config.ts` must stay in OBJECT form, always
 
@@ -91,9 +92,7 @@ Three traps, in order of how much time they cost when hit blind:
      -t warehouse/<context>-frontend:local .
    ```
 
-Once this repo has a web/ remote, its web/Dockerfile is the complete, working, heavily
-commented recipe — until then copy a sibling repo's web/Dockerfile rather than re-deriving these three traps from
-scratch for a new remote.
+This repo's web/Dockerfile is the complete, working, heavily commented recipe.
 
 ## Wiring into `warehouse-infra`'s deploy
 
