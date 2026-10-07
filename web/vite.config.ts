@@ -37,6 +37,11 @@ export default defineConfig({
     federation({
       name: "productmaster_mfe",
       filename: "remoteEntry.js",
+      // No federated type archive: the console imports this remote behind
+      // `// @ts-expect-error` and never downloads its types, and the DTS
+      // worker cannot compile through the solution-style tsconfig.json
+      // (no `jsx` at the root), so it only ever logged a TYPE-001 error.
+      dts: false,
       exposes: {
         "./App": "./src/App.tsx",
       },
