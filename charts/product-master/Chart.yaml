@@ -1,0 +1,12 @@
+apiVersion: v2
+name: product-master
+description: Product Master — SKU master data (handling classification, physical profile); publishes Product events on warehouse.product-master.events
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/IQVO/product-master
+keywords:
+  - ddd
+  - hexagonal-architecture
+  - warehouse-management-system
+  - golang

@@ -36,7 +36,26 @@ go run ./cmd/api          # :8080, in-memory without DATABASE_URL, events logged
 make check-fast           # quick gate
 make check-all            # full local gate
 make integration          # testcontainers Postgres + Kafka (Docker required)
+go run ./cmd/mcp          # :8090, read-only MCP server (Streamable HTTP) over the same database
 ```
+
+## MCP server (ADR 0005)
+
+`cmd/mcp` exposes four read-only tools: `get_product`, `list_products`,
+`get_product_classification`, `get_physical_profile`. It never writes, never
+dials Kafka and never runs the outbox relay. A governance test fails the build
+on any write-verb tool name. Details: [ADR 0005](docs/adr/0005-mcp-server-adoption.md),
+`.claude/rules/mcp.md`.
+
+## Packaging
+
+- `Dockerfile` builds every `cmd/*` binary into one image (`api`, `mcp`).
+- `charts/product-master`: the `api` Deployment and Service, plus an `mcp`
+  component that is off by default. Each Service selects exactly one
+  Deployment (`charts/product-master/tests/test_service_selectors.py`).
+  Chart values cover `EVENT_PUBLISHER`, `KAFKA_BROKERS`,
+  `OUTBOX_RELAY_INTERVAL` and `LEGACY_IMPORT_CONSUMER_GROUP`.
+- Docs site: `cd docs && npm ci && npm run build`.
 
 Scaffolded from [warehouse-harness-template](https://github.com/IQVO/warehouse-harness-template).
 Study project: not production software.
