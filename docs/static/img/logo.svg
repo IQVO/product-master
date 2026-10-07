@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Product Master">
+  <path d="M32 6 L56 18 L56 46 L32 58 L8 46 L8 18 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M8 18 L32 30 L56 18 M32 30 L32 58" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" opacity="0.7"/>
+  <rect x="38" y="34" width="12" height="6" rx="1.5" fill="currentColor" opacity="0.55"/>
+</svg>
