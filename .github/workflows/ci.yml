@@ -101,7 +101,7 @@ jobs:
           set -euo pipefail
           go test ./... -race \
             -coverprofile=coverage.out \
-            -coverpkg=./internal/domain/...,./internal/application/...
+            -coverpkg=./internal/domain/...,./internal/application/...,./internal/analytics/...
 
       - name: Coverage gate
         env:
