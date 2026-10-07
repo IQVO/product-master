@@ -94,29 +94,36 @@ func TestFanout_Postgres_EachEventLandsOnBothTopicsUnderOneIDInOneTransaction(t 
 	seen := map[string]bool{}
 	for i, ev := range events {
 		in, an := rows[2*i], rows[2*i+1]
-		if in.topic != outboundkafka.Topic || an.topic != outboundkafka.AnalyticsTopic {
-			t.Fatalf("%s topics = %q, %q", ev, in.topic, an.topic)
-		}
-		if in.eventID == "" || in.eventID != an.eventID {
-			t.Errorf("%s: ids %q vs %q must be the SAME per occurrence", ev, in.eventID, an.eventID)
-		}
 		if seen[in.eventID] {
 			t.Errorf("%s: occurrence id %q reused", ev, in.eventID)
 		}
 		seen[in.eventID] = true
-		if in.eventType != "com.warehouse.wms.product-master.product."+ev || an.eventType != in.eventType {
-			t.Errorf("%s: types %q / %q", ev, in.eventType, an.eventType)
-		}
-		if in.dataschema != "urn:warehouse:product-master:events:"+ev+":v1" || an.dataschema != "urn:warehouse:product-master:analytics:"+ev+":v1" {
-			t.Errorf("%s: dataschemas %q / %q", ev, in.dataschema, an.dataschema)
-		}
-		if !strings.Contains(an.value, `"id":"`+an.eventID+`"`) || !strings.Contains(in.value, `"id":"`+in.eventID+`"`) {
-			t.Errorf("%s: the persisted bytes do not carry the row's CloudEvents id", ev)
-		}
-		// Payloads are equal (ADR 0006 section 2): the bytes differ only in the dataschema.
-		if strings.Replace(in.value, ":events:", ":analytics:", 1) != an.value {
-			t.Errorf("%s: analytics bytes differ from the integration bytes beyond the dataschema:\n%s\n%s", ev, in.value, an.value)
-		}
+		assertFanoutPair(t, ev, in, an)
+	}
+}
+
+// assertFanoutPair checks one occurrence's integration and analytics rows:
+// topics, one shared id carried in the bytes, one type, the two dataschemas,
+// and bytes that differ only in the dataschema (ADR 0006 section 2).
+func assertFanoutPair(t *testing.T, ev string, in, an analyticsOutboxRow) {
+	t.Helper()
+	if in.topic != outboundkafka.Topic || an.topic != outboundkafka.AnalyticsTopic {
+		t.Fatalf("%s topics = %q, %q", ev, in.topic, an.topic)
+	}
+	if in.eventID == "" || in.eventID != an.eventID {
+		t.Errorf("%s: ids %q vs %q must be the SAME per occurrence", ev, in.eventID, an.eventID)
+	}
+	if in.eventType != "com.warehouse.wms.product-master.product."+ev || an.eventType != in.eventType {
+		t.Errorf("%s: types %q / %q", ev, in.eventType, an.eventType)
+	}
+	if in.dataschema != "urn:warehouse:product-master:events:"+ev+":v1" || an.dataschema != "urn:warehouse:product-master:analytics:"+ev+":v1" {
+		t.Errorf("%s: dataschemas %q / %q", ev, in.dataschema, an.dataschema)
+	}
+	if !strings.Contains(an.value, `"id":"`+an.eventID+`"`) || !strings.Contains(in.value, `"id":"`+in.eventID+`"`) {
+		t.Errorf("%s: the persisted bytes do not carry the row's CloudEvents id", ev)
+	}
+	if strings.Replace(in.value, ":events:", ":analytics:", 1) != an.value {
+		t.Errorf("%s: analytics bytes differ from the integration bytes beyond the dataschema:\n%s\n%s", ev, in.value, an.value)
 	}
 }
 
