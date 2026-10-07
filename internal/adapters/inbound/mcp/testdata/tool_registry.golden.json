@@ -1,0 +1,625 @@
+[
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the physical profile of one SKU: declared dimensions (length_mm, width_mm, height_mm, weight_g, volume_mm3), the latest measurement (same fields plus measured_at and device_id), the effective dimensions (measured wins over declared; effective_source is measured, declared or none) and discrepancy (declared and measured differ by more than 10%). Read-only; fails with product-not-found for an unknown SKU.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "sku": {
+          "description": "the product's SKU (1..64 characters, no whitespace, control characters or '/'), e.g. SKU-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sku"
+      ],
+      "type": "object"
+    },
+    "name": "get_physical_profile",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "additionalProperties": false,
+          "properties": {
+            "height_mm": {
+              "type": "integer"
+            },
+            "length_mm": {
+              "type": "integer"
+            },
+            "volume_mm3": {
+              "type": "integer"
+            },
+            "weight_g": {
+              "type": "integer"
+            },
+            "width_mm": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "length_mm",
+            "width_mm",
+            "height_mm",
+            "weight_g",
+            "volume_mm3"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "discrepancy": {
+          "type": "boolean"
+        },
+        "effective": {
+          "additionalProperties": false,
+          "properties": {
+            "height_mm": {
+              "type": "integer"
+            },
+            "length_mm": {
+              "type": "integer"
+            },
+            "volume_mm3": {
+              "type": "integer"
+            },
+            "weight_g": {
+              "type": "integer"
+            },
+            "width_mm": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "length_mm",
+            "width_mm",
+            "height_mm",
+            "weight_g",
+            "volume_mm3"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "effective_source": {
+          "type": "string"
+        },
+        "measured": {
+          "additionalProperties": false,
+          "properties": {
+            "device_id": {
+              "type": "string"
+            },
+            "height_mm": {
+              "type": "integer"
+            },
+            "length_mm": {
+              "type": "integer"
+            },
+            "measured_at": {
+              "type": "string"
+            },
+            "volume_mm3": {
+              "type": "integer"
+            },
+            "weight_g": {
+              "type": "integer"
+            },
+            "width_mm": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "length_mm",
+            "width_mm",
+            "height_mm",
+            "weight_g",
+            "volume_mm3",
+            "measured_at"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "sku": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "effective_source",
+        "discrepancy",
+        "version"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read one product by SKU: description, version, its handling classification (omitted when unclassified) and its physical profile (declared and latest measured unit dimensions/weight, the effective one used by the warehouse, and whether they disagree by more than 10%). Read-only; fails with product-not-found for an unknown SKU and invalid-sku for a malformed one.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "sku": {
+          "description": "the product's SKU (1..64 characters, no whitespace, control characters or '/'), e.g. SKU-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sku"
+      ],
+      "type": "object"
+    },
+    "name": "get_product",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "additionalProperties": false,
+          "properties": {
+            "classification_source": {
+              "type": "string"
+            },
+            "dot_hazard_class": {
+              "type": [
+                "null",
+                "integer"
+              ]
+            },
+            "handling_tags": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "temperature_class": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "handling_tags",
+            "classification_source"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "physical_profile": {
+          "additionalProperties": false,
+          "properties": {
+            "declared": {
+              "additionalProperties": false,
+              "properties": {
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "discrepancy": {
+              "type": "boolean"
+            },
+            "effective": {
+              "additionalProperties": false,
+              "properties": {
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "effective_source": {
+              "type": "string"
+            },
+            "measured": {
+              "additionalProperties": false,
+              "properties": {
+                "device_id": {
+                  "type": "string"
+                },
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "measured_at": {
+                  "type": "string"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3",
+                "measured_at"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            }
+          },
+          "required": [
+            "effective_source",
+            "discrepancy"
+          ],
+          "type": "object"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "description",
+        "version",
+        "physical_profile"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the handling classification of one SKU: handling_tags in stable order (Hazmat, Fragile, TemperatureSensitive, Oversized, HighValue), temperature_class (Ambient, Chilled, Frozen; only with TemperatureSensitive), dot_hazard_class (1..9; only with Hazmat, omitted when not recorded), classification_source (native, or legacy-import while inventory-storage's value has not been confirmed here) and the product version. Read-only; fails with product-not-found or product-classification-not-found.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "sku": {
+          "description": "the product's SKU (1..64 characters, no whitespace, control characters or '/'), e.g. SKU-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sku"
+      ],
+      "type": "object"
+    },
+    "name": "get_product_classification",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "classification_source": {
+          "type": "string"
+        },
+        "dot_hazard_class": {
+          "type": [
+            "null",
+            "integer"
+          ]
+        },
+        "handling_tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "sku": {
+          "type": "string"
+        },
+        "temperature_class": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "handling_tags",
+        "classification_source",
+        "version"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "List products in ascending SKU order, a page at a time (default 100, max 500), optionally only those whose classification carries handling_tag and/or only classified (classified=true) or unclassified (classified=false) ones. Pass the returned next_cursor to get the next page; it is absent on the last page. Read-only; a bad limit, cursor or tag fails with malformed-request.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "classified": {
+          "description": "true keeps only classified products, false only unclassified ones; omitted keeps both",
+          "type": [
+            "null",
+            "boolean"
+          ]
+        },
+        "cursor": {
+          "description": "the opaque next_cursor returned by the previous page; omitted means the first page",
+          "type": "string"
+        },
+        "handling_tag": {
+          "description": "keep only products whose classification carries this tag: Hazmat, Fragile, TemperatureSensitive, Oversized or HighValue",
+          "type": "string"
+        },
+        "limit": {
+          "description": "page size, 1..500; omitted or 0 means 100",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "list_products",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "classification": {
+                "additionalProperties": false,
+                "properties": {
+                  "classification_source": {
+                    "type": "string"
+                  },
+                  "dot_hazard_class": {
+                    "type": [
+                      "null",
+                      "integer"
+                    ]
+                  },
+                  "handling_tags": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "null",
+                      "array"
+                    ]
+                  },
+                  "temperature_class": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handling_tags",
+                  "classification_source"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "description": {
+                "type": "string"
+              },
+              "physical_profile": {
+                "additionalProperties": false,
+                "properties": {
+                  "declared": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "height_mm": {
+                        "type": "integer"
+                      },
+                      "length_mm": {
+                        "type": "integer"
+                      },
+                      "volume_mm3": {
+                        "type": "integer"
+                      },
+                      "weight_g": {
+                        "type": "integer"
+                      },
+                      "width_mm": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "length_mm",
+                      "width_mm",
+                      "height_mm",
+                      "weight_g",
+                      "volume_mm3"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "discrepancy": {
+                    "type": "boolean"
+                  },
+                  "effective": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "height_mm": {
+                        "type": "integer"
+                      },
+                      "length_mm": {
+                        "type": "integer"
+                      },
+                      "volume_mm3": {
+                        "type": "integer"
+                      },
+                      "weight_g": {
+                        "type": "integer"
+                      },
+                      "width_mm": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "length_mm",
+                      "width_mm",
+                      "height_mm",
+                      "weight_g",
+                      "volume_mm3"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  },
+                  "effective_source": {
+                    "type": "string"
+                  },
+                  "measured": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "device_id": {
+                        "type": "string"
+                      },
+                      "height_mm": {
+                        "type": "integer"
+                      },
+                      "length_mm": {
+                        "type": "integer"
+                      },
+                      "measured_at": {
+                        "type": "string"
+                      },
+                      "volume_mm3": {
+                        "type": "integer"
+                      },
+                      "weight_g": {
+                        "type": "integer"
+                      },
+                      "width_mm": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "length_mm",
+                      "width_mm",
+                      "height_mm",
+                      "weight_g",
+                      "volume_mm3",
+                      "measured_at"
+                    ],
+                    "type": [
+                      "null",
+                      "object"
+                    ]
+                  }
+                },
+                "required": [
+                  "effective_source",
+                  "discrepancy"
+                ],
+                "type": "object"
+              },
+              "sku": {
+                "type": "string"
+              },
+              "version": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "sku",
+              "description",
+              "version",
+              "physical_profile"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  }
+]
