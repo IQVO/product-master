@@ -12,7 +12,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 COPY . .
 
-# Build EVERY cmd/* binary (today cmd/api and cmd/mcp) by looping over the
+# Build EVERY cmd/* binary (today api, mcp, product-projector and
+# product-reports) by looping over the
 # cmd/ directories, so a new composition root can never be merged with a
 # Dockerfile that silently forgets to build it (the first symptom would
 # otherwise be a CrashLoopBackOff on `exec: "/app/<binary>": no such file or
@@ -35,11 +36,12 @@ RUN apk upgrade --no-cache && \
     apk add --no-cache ca-certificates tzdata && \
     addgroup -g 1000 -S app && adduser -u 1000 -S app -G app
 WORKDIR /app
-# Every binary built above (api, mcp) -> /app/<name>. The golang-migrate
-# files are embedded in the binaries (internal/adapters/outbound/postgres
-# go:embed), so no migrations directory is copied.
+# Every binary built above (api, mcp, product-projector, product-reports) ->
+# /app/<name>. The golang-migrate files are embedded in the binaries (OLTP:
+# internal/adapters/outbound/postgres; analytical: analytics/, ADR 0006), so
+# no migrations directory is copied.
 COPY --from=build --chown=app:app /out/ ./
 USER 1000
-# 8080 api, 8090 mcp.
-EXPOSE 8080 8090
+# 8080 api, 8090 mcp, 8091 projector admin (/healthz, /readyz), 8092 reports.
+EXPOSE 8080 8090 8091 8092
 ENTRYPOINT ["./api"]

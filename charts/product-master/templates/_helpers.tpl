@@ -81,7 +81,53 @@ Fully qualified name of the MCP server deployment/service.
 {{- end }}
 
 {{/*
-Image reference shared by the api and mcp Deployments.
+Fully qualified name of the analytics projector deployment (ADR 0006).
+*/}}
+{{- define "product-master.projectorFullname" -}}
+{{- include "product-master.fullname" . }}-projector
+{{- end }}
+
+{{/*
+Fully qualified name of the analytics reports deployment/service (ADR 0006).
+The reports Service is cluster-internal (component=analytics-reports); nothing
+in this chart routes external traffic to it (warehouse-infra owns the edge).
+*/}}
+{{- define "product-master.reportsFullname" -}}
+{{- include "product-master.fullname" . }}-reports
+{{- end }}
+
+{{/*
+Name of the Secret holding the analytical DSNs: the operator's own
+(analytics.database.existingSecret, keys ANALYTICS_DATABASE_URL and
+ANALYTICS_READER_DATABASE_URL) or the one this chart creates.
+*/}}
+{{- define "product-master.analyticsSecretName" -}}
+{{- if .Values.analytics.database.existingSecret }}
+{{- .Values.analytics.database.existingSecret }}
+{{- else }}
+{{- include "product-master.fullname" . }}-analytics
+{{- end }}
+{{- end }}
+
+{{/*
+analytics.enabled needs an analytical DSN source (both binaries refuse to boot
+without ANALYTICS_DATABASE_URL) and a broker (the projector consumes
+warehouse.product-master.analytics from kafka.brokers). Fail at render instead
+of crash-looping. Events only reach the analytics topic when
+config.eventPublisher is "kafka"; that is documented, not enforced, since the
+projector is harmless without events.
+*/}}
+{{- define "product-master.requireAnalyticsConfig" -}}
+{{- if not (or .Values.analytics.database.projectorUrl .Values.analytics.database.existingSecret) -}}
+{{- fail "analytics.enabled is true but neither analytics.database.projectorUrl nor analytics.database.existingSecret is set — the projector and reports binaries refuse to boot without ANALYTICS_DATABASE_URL." -}}
+{{- end -}}
+{{- if not .Values.kafka.enabled -}}
+{{- fail "analytics.enabled is true but kafka.enabled is false — the projector consumes warehouse.product-master.analytics and needs kafka.brokers. Set kafka.enabled=true." -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Image reference shared by every Deployment (api, mcp, analytics-projector, analytics-reports).
 */}}
 {{- define "product-master.image" -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}

@@ -109,6 +109,18 @@ func (e *Encoder) encodeOne(ev product.Event, id string) (outbox.Message, error)
 	if err != nil {
 		return outbox.Message{}, err
 	}
+	topic := e.Topic
+	if topic == "" {
+		topic = Topic
+	}
+	return buildMessage(ev, id, topic, cloudevents.StreamEvents, data)
+}
+
+// buildMessage wraps data in the CloudEvents envelope of ev on stream
+// (cloudevents.StreamEvents or StreamAnalytics, which only changes the
+// dataschema) and returns the outbox row for topic. Both encoders share it, so
+// the two messages of one occurrence differ only in topic and dataschema.
+func buildMessage(ev product.Event, id, topic, stream string, data any) (outbox.Message, error) {
 	sku := string(ev.ProductSKU())
 	value, err := cloudevents.New(cloudevents.Spec{
 		ID:        id,
@@ -116,7 +128,7 @@ func (e *Encoder) encodeOne(ev product.Event, id string) (outbox.Message, error)
 		EventName: ev.EventName(),
 		Subject:   sku,
 		Time:      ev.OccurredAt(),
-		Stream:    cloudevents.StreamEvents,
+		Stream:    stream,
 		Version:   schemaVersion,
 		Data:      data,
 	})
@@ -124,17 +136,13 @@ func (e *Encoder) encodeOne(ev product.Event, id string) (outbox.Message, error)
 		return outbox.Message{}, fmt.Errorf("encode %s: %w", ev.EventName(), err)
 	}
 	ct := cloudevents.ContentTypeHeader()
-	topic := e.Topic
-	if topic == "" {
-		topic = Topic
-	}
 	return outbox.Message{
 		EventID:    id,
 		Topic:      topic,
 		EventType:  cloudevents.Type(Entity, ev.EventName()),
 		Subject:    sku,
 		Key:        []byte(sku),
-		DataSchema: cloudevents.DataSchema(cloudevents.StreamEvents, ev.EventName(), schemaVersion),
+		DataSchema: cloudevents.DataSchema(stream, ev.EventName(), schemaVersion),
 		Value:      value,
 		Headers:    []outbox.Header{{Key: ct.Key, Value: string(ct.Value)}},
 	}, nil

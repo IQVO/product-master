@@ -37,6 +37,13 @@ tags:
     description: Declared and measured unit dimensions and weight (ADR 0002).
   - name: Health
     description: Liveness and readiness probes.
+  - name: Reports
+    description: |
+      The read-only master data quality report of the analytics read side
+      (ADR 0006), served by the separate `product-reports` binary (port 8092,
+      cluster-internal Service `<release>-reports`) from the analytical
+      database, never from the OLTP API. Like every sibling's reports API its
+      JSON is snake_case.
 
 paths:
   /products:
@@ -430,8 +437,128 @@ paths:
               schema:
                 $ref: "#/components/schemas/Status"
 
+  /reports/master-data-quality:
+    servers:
+      - url: http://localhost:8092
+        description: product-reports (cluster-internal Service <release>-reports)
+    get:
+      operationId: getMasterDataQuality
+      summary: Master data quality per day and current coverage
+      tags: [Reports]
+      description: |
+        Is the product master filling in? `days[]` has one row per UTC calendar
+        day intersecting `[from, to)` (zeros included); a day's counts cover
+        the part of the day inside the range. `registered`, `classified`,
+        `dimensions_declared` and `measured` count the products whose FIRST
+        such event fell in that window, so a reclassification or a
+        re-measurement never counts twice and the rows add up to coverage
+        growth. `open_discrepancies` counts the products whose latest physical
+        profile at the end of the window (the day's end, or `to` for a partial
+        last day) has measured dimensions disagreeing with the declared ones.
+
+        `coverage` is the CURRENT state of every product the projection knows,
+        independent of the range: ratios are over `products` (distinct SKUs
+        seen in any event), except `discrepancy_ratio`, which is over
+        `measured`; a ratio over zero is 0. The data is as fresh as
+        `GET /reports/freshness` says.
+      parameters:
+        - $ref: "#/components/parameters/ReportFrom"
+        - $ref: "#/components/parameters/ReportTo"
+      responses:
+        "200":
+          description: The report for the effective range.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasterDataQualityReport"
+              example:
+                from: "2026-10-05T00:00:00Z"
+                to: "2026-10-07T00:00:00Z"
+                days:
+                  - day: "2026-10-05"
+                    registered: 12
+                    classified: 9
+                    dimensions_declared: 7
+                    measured: 2
+                    open_discrepancies: 1
+                  - day: "2026-10-06"
+                    registered: 3
+                    classified: 5
+                    dimensions_declared: 4
+                    measured: 6
+                    open_discrepancies: 2
+                coverage:
+                  products: 120
+                  classified: 96
+                  dimensions_declared: 80
+                  measured: 40
+                  open_discrepancies: 2
+                  classified_ratio: 0.8
+                  dimensions_declared_ratio: 0.6667
+                  measured_ratio: 0.3333
+                  discrepancy_ratio: 0.05
+        "400":
+          description: "`from` / `to` are not RFC 3339, empty or inverted, or span more than 366 days."
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              example:
+                type: https://errors.product-master.warehouse-systems.dev/invalid-report-range
+                title: from and to must form a valid RFC 3339 range of at most 366 days
+                status: 400
+                detail: from must be strictly before to
+                instance: /reports/master-data-quality
+        "500":
+          $ref: "#/components/responses/ReportStoreError"
+  /reports/freshness:
+    servers:
+      - url: http://localhost:8092
+        description: product-reports (cluster-internal Service <release>-reports)
+    get:
+      operationId: getReportsFreshness
+      summary: How far the analytics projection is behind
+      tags: [Reports]
+      description: |
+        The freshness lag of the projection the report reads: `as_of` is the
+        CloudEvents time of the newest event the projector has applied and
+        `lag_seconds` is now minus `as_of` (never negative). Both are null
+        until the first event is applied. A growing lag means the projector is
+        down or behind, not that the report is wrong: it catches up when the
+        projector does.
+      responses:
+        "200":
+          description: The freshness (null fields while nothing was projected).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportsFreshness"
+              example:
+                as_of: "2026-10-07T11:59:55Z"
+                lag_seconds: 4.2
+        "500":
+          $ref: "#/components/responses/ReportStoreError"
+
 components:
   parameters:
+    ReportFrom:
+      name: from
+      in: query
+      required: false
+      description: RFC 3339 instant, inclusive. Defaults to `to` minus 30 days.
+      schema:
+        type: string
+        format: date-time
+      example: "2026-10-05T00:00:00Z"
+    ReportTo:
+      name: to
+      in: query
+      required: false
+      description: RFC 3339 instant, exclusive. Defaults to now. At most 366 days after `from`.
+      schema:
+        type: string
+        format: date-time
+      example: "2026-10-07T00:00:00Z"
     Sku:
       name: sku
       in: path
@@ -445,6 +572,18 @@ components:
       example: SKU-1
 
   responses:
+    ReportStoreError:
+      description: The analytical database query failed (the cause is logged, never returned).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://errors.product-master.warehouse-systems.dev/report-store-error
+            title: The report could not be served
+            status: 500
+            detail: the analytical database query failed
+            instance: /reports/master-data-quality
     BadRequest:
       description: Malformed JSON body, an unknown field, or an invalid SKU or query parameter.
       content:
@@ -734,3 +873,123 @@ components:
       required: [status]
       properties:
         status: { type: string, example: ok }
+    MasterDataQualityReport:
+      type: object
+      required: [from, to, days, coverage]
+      properties:
+        from:
+          type: string
+          format: date-time
+          description: The effective range start (inclusive, UTC).
+        to:
+          type: string
+          format: date-time
+          description: The effective range end (exclusive, UTC).
+        days:
+          type: array
+          description: One row per UTC day intersecting the range, in day order, zeros included.
+          items:
+            $ref: "#/components/schemas/MasterDataQualityDay"
+        coverage:
+          $ref: "#/components/schemas/MasterDataCoverage"
+    MasterDataQualityDay:
+      type: object
+      required: [day, registered, classified, dimensions_declared, measured, open_discrepancies]
+      properties:
+        day:
+          type: string
+          format: date
+          description: The UTC calendar day.
+        registered:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products registered in the day's window.
+        classified:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products whose first classification fell in the window.
+        dimensions_declared:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products whose first declared dimensions fell in the window.
+        measured:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products whose first measurement fell in the window.
+        open_discrepancies:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products whose latest physical profile at the window's end has a declared-vs-measured discrepancy.
+    MasterDataCoverage:
+      type: object
+      description: The current state of every product the projection knows (not range-bound).
+      required: [products, classified, dimensions_declared, measured, open_discrepancies,
+        classified_ratio, dimensions_declared_ratio, measured_ratio, discrepancy_ratio]
+      properties:
+        products:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Distinct SKUs seen in any product event.
+        classified:
+          type: integer
+          format: int32
+          minimum: 0
+        dimensions_declared:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products whose current physical profile has declared dimensions.
+        measured:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Products whose current physical profile has a measurement.
+        open_discrepancies:
+          type: integer
+          format: int32
+          minimum: 0
+        classified_ratio:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: classified / products (0 when there are none).
+        dimensions_declared_ratio:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: dimensions_declared / products.
+        measured_ratio:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: measured / products.
+        discrepancy_ratio:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: open_discrepancies / measured.
+    ReportsFreshness:
+      type: object
+      required: [as_of, lag_seconds]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          nullable: true
+          description: CloudEvents time of the newest event applied; null when none.
+        lag_seconds:
+          type: number
+          format: double
+          nullable: true
+          minimum: 0
+          description: now - as_of, in seconds; null when nothing was applied.
