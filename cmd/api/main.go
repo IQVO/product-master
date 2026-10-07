@@ -111,9 +111,11 @@ type adapters struct {
 	uow         ports.UnitOfWork
 }
 
-// writer bundles the ports every write use case needs.
+// writer bundles the ports every write use case needs. The FanoutEncoder
+// writes each event to the integration AND the analytics topic (two outbox
+// rows, one CloudEvents id, one transaction; ADR 0006).
 func (a adapters) writer() usecases.Writer {
-	return usecases.Writer{Products: a.products, Outbox: a.outbox, Encoder: outboundkafka.NewEncoder(), UoW: a.uow, Clock: clock.System{}}
+	return usecases.Writer{Products: a.products, Outbox: a.outbox, Encoder: outboundkafka.NewFanoutEncoder(), UoW: a.uow, Clock: clock.System{}}
 }
 
 func buildServer(ad adapters, readiness *inboundhttp.Readiness, metrics http.Handler) *inboundhttp.Server {
@@ -283,7 +285,7 @@ func startOutboxRelay(store outboxrelay.Store, logger *slog.Logger) (*worker, fu
 	go func() {
 		defer close(w.done)
 		defer closeSink()
-		logger.Info("outbox relay running", "publisher", mode, "interval", interval, "topic", outboundkafka.Topic)
+		logger.Info("outbox relay running", "publisher", mode, "interval", interval, "topics", []string{outboundkafka.Topic, outboundkafka.AnalyticsTopic})
 		if err := relay.Run(ctx); !errors.Is(err, context.Canceled) {
 			logger.Error("outbox relay stopped", "error", err)
 		}
