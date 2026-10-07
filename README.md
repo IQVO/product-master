@@ -1,42 +1,42 @@
-# warehouse-harness-template
+# product-master
 
-Canonical `harness-template: v2` for the [warehouse-systems](https://github.com/claudioed)
-fleet's Go bounded-context services: `Makefile`, CI workflow, lefthook
-hooks, linter/mutation-testing config, architecture fitness tests
-(hexagonal dependency rules + fleet-wide invariants learned from real
-incidents), and `.claude/` guides (rules, skills, commands).
+Product Master is the WMS-tier bounded context of the warehouse-systems fleet
+that owns SKU-level product master data: the handling classification of a SKU
+(hazmat, fragile, temperature-sensitive, oversized, high value, DOT hazard
+class) and its physical profile (declared and measured unit dimensions and
+weight). Hexagonal Go, Postgres, REST, Kafka (CloudEvents 1.0).
 
-This is a **template, not a runnable service** — it has no domain code,
-no `cmd/`, no OpenAPI spec. It exists to answer one question for every
-new (or drifting) bounded-context repo in the fleet: **what harness
-should this repo have, and why?**
+- Why it exists and how it relates to the other contexts:
+  [ADR 0001](docs/adr/0001-product-master-bounded-context.md)
+- Physical profile rules: [ADR 0002](docs/adr/0002-physical-profile-declared-vs-measured.md)
+- Migration from inventory-storage: [ADR 0003](docs/adr/0003-migration-from-inventory-storage.md)
+- Event catalogue: [ADR 0004](docs/adr/0004-cloudevents-envelope-and-type-catalogue.md)
+- Contracts: [`apis/openapi.yaml`](apis/openapi.yaml) (REST),
+  [`apis/asyncapi.yaml`](apis/asyncapi.yaml) (events on
+  `warehouse.product-master.events`)
+- Agent guides: `.claude/rules/` ; harness: [`HARNESS.md`](HARNESS.md)
 
-Start with [`HARNESS.md`](HARNESS.md) — it documents every sensor's
-purpose, cost, and lifecycle position, and the specific incident each
-architecture fitness test was written to prevent from recurring.
+## Endpoints (summary)
 
-## Instantiating this template into a new (or existing) repo
+| Method | Path | Use case |
+|---|---|---|
+| GET | `/products` | ListProducts |
+| PUT | `/products/{sku}` | RegisterProduct |
+| GET | `/products/{sku}` | GetProduct |
+| PUT | `/products/{sku}/classification` | ClassifyProduct |
+| GET | `/products/{sku}/classification` | GetProduct (classification) |
+| PUT | `/products/{sku}/dimensions/declared` | DeclareDimensions |
+| PUT | `/products/{sku}/dimensions/measured` | RecordMeasurement |
+| GET | `/products/{sku}/physical-profile` | GetProduct (physical profile) |
+
+## Running locally
 
 ```bash
-git clone https://github.com/claudioed/warehouse-harness-template <new-repo>
-cd <new-repo>
-rm -rf .git && git init
-bash scripts/new-service.sh <service-name> <richest-domain-aggregate-pkg> [<wms|wes> <event-context>]
+go run ./cmd/api          # :8080, in-memory without DATABASE_URL, events logged without a broker
+make check-fast           # quick gate
+make check-all            # full local gate
+make integration          # testcontainers Postgres + Kafka (Docker required)
 ```
 
-Kafka-publishing/consuming services pass the last two arguments: the
-script then generates the fleet-mandatory CloudEvents 1.0 helper
-(`internal/adapters/kafka/cloudevents/`). CloudEvents is the only event
-envelope in this fleet — there is no flat/dual mode to configure.
-
-See `scripts/new-service.sh`'s header comment, or `HARNESS.md`'s
-"Instantiating this template" section, for the full checklist —
-substitution is only step one; `.claude/rules/*.md` content and
-`.gremlins.yaml`'s measured thresholds still need real code to fill in.
-
-## Study project
-
-This repo, like the rest of the `warehouse-systems` fleet, is a personal
-study project exploring Domain-Driven Design, hexagonal architecture, and
-AI-agent harness engineering. It is not production software and carries
-no support guarantee.
+Scaffolded from [warehouse-harness-template](https://github.com/IQVO/warehouse-harness-template).
+Study project: not production software.

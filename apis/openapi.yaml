@@ -1,0 +1,736 @@
+openapi: 3.0.3
+info:
+  title: Product Master API
+  version: 1.0.0
+  description: |
+    The WMS-tier source of truth for SKU-level product master data in the
+    warehouse-systems platform (ADR 0001): what a SKU *is* for handling
+    purposes (its classification) and physically (declared and measured unit
+    dimensions and weight, ADR 0002). It answers no "where" or "how many"
+    question; stock lives in inventory-storage.
+
+    Every write is an idempotent `PUT`: repeating a request with the same body
+    changes nothing, bumps no version and publishes no event. Accepted changes
+    are published as CloudEvents on `warehouse.product-master.events` through a
+    transactional outbox (see `apis/asyncapi.yaml`); sibling contexts keep a
+    local copy from those events and never call this API at request time.
+
+    Errors are RFC 7807 problem documents with
+    `type = https://errors.product-master.warehouse-systems.dev/<slug>`.
+    There is no authentication layer (fleet decision 2026-09-11).
+  contact:
+    name: product-master maintainers
+    url: https://github.com/IQVO/product-master
+  license:
+    name: UNLICENSED
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: http://localhost:8000/api/product-master
+    description: Local kind cluster through Kong
+tags:
+  - name: Products
+    description: Product registration and lookup.
+  - name: Classification
+    description: Handling classification (moved from inventory-storage, ADR 0003).
+  - name: Physical profile
+    description: Declared and measured unit dimensions and weight (ADR 0002).
+  - name: Health
+    description: Liveness and readiness probes.
+
+paths:
+  /products:
+    get:
+      operationId: listProducts
+      summary: List products
+      description: |
+        Lists registered products in ascending SKU order, a page at a time.
+        `cursor` is the opaque `nextCursor` of the previous page; a response
+        without `nextCursor` is the last page. Optional filters narrow the
+        list to products carrying a handling tag, or to products with or
+        without a classification.
+      tags: [Products]
+      parameters:
+        - name: limit
+          in: query
+          description: Page size, 1 to 500 (default 100).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 500
+            default: 100
+        - name: cursor
+          in: query
+          description: The `nextCursor` value from the previous page.
+          schema:
+            type: string
+        - name: handlingTag
+          in: query
+          description: Only products whose classification carries this tag.
+          schema:
+            $ref: "#/components/schemas/HandlingTag"
+        - name: classified
+          in: query
+          description: "`true` = only classified products, `false` = only unclassified ones."
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: One page of products.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+              example:
+                items:
+                  - sku: SKU-1
+                    description: Lithium battery pack 12V
+                    version: 3
+                    classification:
+                      handlingTags: [Hazmat]
+                      dotHazardClass: 9
+                      classificationSource: native
+                    physicalProfile:
+                      declared: { lengthMm: 200, widthMm: 120, heightMm: 80, weightG: 1500, volumeMm3: 1920000 }
+                      effective: { lengthMm: 200, widthMm: 120, heightMm: 80, weightG: 1500, volumeMm3: 1920000 }
+                      effectiveSource: declared
+                      discrepancy: false
+                nextCursor: U0tVLTE
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /products/{sku}:
+    parameters:
+      - $ref: "#/components/parameters/Sku"
+    put:
+      operationId: registerProduct
+      summary: Register a product or change its description
+      description: |
+        Registers the SKU as a product (201) or, when it is already
+        registered, replaces its description (200). A product must be
+        registered before it can be classified or dimensioned. Repeating the
+        request with the same description returns 200 and changes nothing.
+      tags: [Products]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterProductRequest"
+            example:
+              description: Lithium battery pack 12V
+      responses:
+        "200":
+          description: The product already existed; its description is now the requested one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "201":
+          description: The product was registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+              example:
+                sku: SKU-1
+                description: Lithium battery pack 12V
+                version: 1
+                physicalProfile:
+                  effectiveSource: none
+                  discrepancy: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/ConcurrentModification"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: getProduct
+      summary: Get a product
+      description: Returns the product's full master record (description, classification, physical profile, version).
+      tags: [Products]
+      responses:
+        "200":
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/ProductNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /products/{sku}/classification:
+    parameters:
+      - $ref: "#/components/parameters/Sku"
+    put:
+      operationId: classifyProduct
+      summary: Set or replace a product's handling classification
+      description: |
+        Sets (201) or replaces (200) the handling classification of a
+        registered product. The request body is the same as inventory-storage's
+        former `PUT /products/{sku}/classification` (ADR 0003). `handlingTags`
+        is a non-empty, duplicate-free set from the closed enum;
+        `temperatureClass` is required if and only if `TemperatureSensitive` is
+        present; `dotHazardClass` is optional and only allowed with `Hazmat`.
+        An identical classification returns 200 and changes nothing.
+      tags: [Classification]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClassifyProductRequest"
+            example:
+              handlingTags: [Hazmat, TemperatureSensitive]
+              temperatureClass: Frozen
+              dotHazardClass: 3
+      responses:
+        "200":
+          description: An existing classification was replaced (or was already identical).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductClassification"
+        "201":
+          description: The product had no classification; it has one now.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductClassification"
+              example:
+                sku: SKU-1
+                handlingTags: [Hazmat, TemperatureSensitive]
+                temperatureClass: Frozen
+                dotHazardClass: 3
+                classificationSource: native
+                version: 2
+        "400":
+          $ref: "#/components/responses/InvalidClassification"
+        "404":
+          $ref: "#/components/responses/ProductNotFound"
+        "409":
+          $ref: "#/components/responses/ConcurrentModification"
+        "500":
+          $ref: "#/components/responses/InternalError"
+    get:
+      operationId: getProductClassification
+      summary: Get a product's handling classification
+      description: |
+        Returns the classification in the same shape inventory-storage used,
+        plus `classificationSource` and `version`. 404
+        `product-classification-not-found` when the product exists but is not
+        classified; 404 `product-not-found` when the SKU is not registered.
+      tags: [Classification]
+      responses:
+        "200":
+          description: The classification.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductClassification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The SKU is not registered, or it is registered but not classified.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                productNotFound:
+                  summary: SKU not registered
+                  value:
+                    type: https://errors.product-master.warehouse-systems.dev/product-not-found
+                    title: Product not found
+                    status: 404
+                    detail: product not found
+                    instance: /products/SKU-UNKNOWN/classification
+                classificationNotFound:
+                  summary: Registered but not classified
+                  value:
+                    type: https://errors.product-master.warehouse-systems.dev/product-classification-not-found
+                    title: Product classification not found
+                    status: 404
+                    detail: product classification not found
+                    instance: /products/SKU-1/classification
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /products/{sku}/dimensions/declared:
+    parameters:
+      - $ref: "#/components/parameters/Sku"
+    put:
+      operationId: declareDimensions
+      summary: Declare a product's unit dimensions and weight
+      description: |
+        Sets or replaces the declared (vendor or steward supplied) unit
+        dimensions in whole millimetres and weight in whole grams (ADR 0002).
+        Each dimension is 1..20000 mm and the weight 1..2000000 g. Returns the
+        whole physical profile, including the effective values and the
+        declared-versus-measured discrepancy flag. Identical values return 200
+        and change nothing.
+      tags: [Physical profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnitDimensionsInput"
+            example:
+              lengthMm: 200
+              widthMm: 120
+              heightMm: 80
+              weightG: 1500
+      responses:
+        "200":
+          description: The physical profile after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalProfile"
+        "400":
+          $ref: "#/components/responses/InvalidDimensions"
+        "404":
+          $ref: "#/components/responses/ProductNotFound"
+        "409":
+          $ref: "#/components/responses/ConcurrentModification"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /products/{sku}/dimensions/measured:
+    parameters:
+      - $ref: "#/components/parameters/Sku"
+    put:
+      operationId: recordMeasurement
+      summary: Record a measurement of one unit
+      description: |
+        Records the latest measured unit dimensions and weight (a cubiscan
+        reading or a manual measurement, ADR 0002). The measured values become
+        the effective ones. A measurement older than the current one is
+        rejected with 409 `stale-measurement`; `measuredAt` in the future is a
+        400. Repeating the current measurement changes nothing.
+      tags: [Physical profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MeasurementInput"
+            example:
+              lengthMm: 205
+              widthMm: 121
+              heightMm: 82
+              weightG: 1720
+              measuredAt: "2026-10-06T14:05:00Z"
+              deviceId: CUBISCAN-03
+      responses:
+        "200":
+          description: The physical profile after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalProfile"
+              example:
+                declared: { lengthMm: 200, widthMm: 120, heightMm: 80, weightG: 1500, volumeMm3: 1920000 }
+                measured: { lengthMm: 205, widthMm: 121, heightMm: 82, weightG: 1720, volumeMm3: 2034010, measuredAt: "2026-10-06T14:05:00Z", deviceId: CUBISCAN-03 }
+                effective: { lengthMm: 205, widthMm: 121, heightMm: 82, weightG: 1720, volumeMm3: 2034010 }
+                effectiveSource: measured
+                discrepancy: true
+                version: 4
+        "400":
+          $ref: "#/components/responses/InvalidDimensions"
+        "404":
+          $ref: "#/components/responses/ProductNotFound"
+        "409":
+          description: A newer measurement is already recorded, or a concurrent write won.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                staleMeasurement:
+                  summary: Older than the current measurement
+                  value:
+                    type: https://errors.product-master.warehouse-systems.dev/stale-measurement
+                    title: A newer measurement is already recorded
+                    status: 409
+                    detail: measurement is older than the current one
+                    instance: /products/SKU-1/dimensions/measured
+                concurrentModification:
+                  summary: Concurrent write
+                  value:
+                    type: https://errors.product-master.warehouse-systems.dev/concurrent-modification
+                    title: The resource was modified by another request; re-fetch the latest version and retry
+                    status: 409
+                    detail: concurrent modification
+                    instance: /products/SKU-1/dimensions/measured
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /products/{sku}/physical-profile:
+    parameters:
+      - $ref: "#/components/parameters/Sku"
+    get:
+      operationId: getPhysicalProfile
+      summary: Get a product's physical profile
+      description: Declared, measured and effective unit dimensions and weight, with the discrepancy flag (ADR 0002).
+      tags: [Physical profile]
+      responses:
+        "200":
+          description: The physical profile (empty parts are omitted; `effectiveSource` is `none` when nothing is known).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhysicalProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/ProductNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /healthz:
+    get:
+      operationId: healthz
+      summary: Liveness probe
+      description: 200 while the process is running.
+      tags: [Health]
+      responses:
+        "200":
+          description: Alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+  /readyz:
+    get:
+      operationId: readyz
+      summary: Readiness probe
+      description: 200 when the service can serve traffic; 503 while starting or draining for shutdown.
+      tags: [Health]
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+        "503":
+          description: Not ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+
+components:
+  parameters:
+    Sku:
+      name: sku
+      in: path
+      required: true
+      description: The SKU (1..64 characters, no whitespace, control characters or `/`).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: "^[^\\s/]+$"
+      example: SKU-1
+
+  responses:
+    BadRequest:
+      description: Malformed JSON body, an unknown field, or an invalid SKU or query parameter.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            invalidSku:
+              summary: Invalid SKU
+              value:
+                type: https://errors.product-master.warehouse-systems.dev/invalid-sku
+                title: SKU is invalid
+                status: 400
+                detail: "sku must be 1..64 characters without whitespace, control characters or '/'"
+                instance: /products/bad%20sku
+            malformedBody:
+              summary: Malformed JSON body
+              value:
+                type: https://errors.product-master.warehouse-systems.dev/malformed-request
+                title: Malformed request
+                status: 400
+                detail: request body is not valid JSON for this operation
+                instance: /products/SKU-1
+            invalidDescription:
+              summary: Description too long
+              value:
+                type: https://errors.product-master.warehouse-systems.dev/invalid-description
+                title: Description is invalid
+                status: 400
+                detail: description must be at most 200 characters
+                instance: /products/SKU-1
+    InvalidClassification:
+      description: The classification breaks a rule of the closed taxonomy (inventory-storage ADR 0009/0010 rules, unchanged).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            noTags:
+              summary: No handling tags
+              value: { type: https://errors.product-master.warehouse-systems.dev/no-handling-tags, title: Classification requires at least one handling tag, status: 400, detail: classification requires at least one handling tag, instance: /products/SKU-1/classification }
+            unknownTag:
+              summary: Unknown handling tag
+              value: { type: https://errors.product-master.warehouse-systems.dev/unknown-handling-tag, title: Unknown handling tag, status: 400, detail: unknown handling tag, instance: /products/SKU-1/classification }
+            duplicateTag:
+              summary: Duplicate handling tag
+              value: { type: https://errors.product-master.warehouse-systems.dev/duplicate-handling-tag, title: Duplicate handling tag, status: 400, detail: duplicate handling tag, instance: /products/SKU-1/classification }
+            temperatureRequired:
+              summary: TemperatureSensitive without a temperature class
+              value: { type: https://errors.product-master.warehouse-systems.dev/temperature-class-required, title: Temperature-sensitive classification requires a temperature class, status: 400, detail: temperature-sensitive classification requires a temperature class, instance: /products/SKU-1/classification }
+            temperatureNotApplicable:
+              summary: Temperature class without TemperatureSensitive
+              value: { type: https://errors.product-master.warehouse-systems.dev/temperature-class-not-applicable, title: Temperature class is only meaningful when the temperature-sensitive tag is present, status: 400, detail: temperature class is only meaningful when the temperature-sensitive tag is present, instance: /products/SKU-1/classification }
+            unknownTemperature:
+              summary: Unknown temperature class
+              value: { type: https://errors.product-master.warehouse-systems.dev/unknown-temperature-class, title: Unknown temperature class, status: 400, detail: unknown temperature class, instance: /products/SKU-1/classification }
+            invalidDot:
+              summary: DOT hazard class outside 1..9
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-dot-hazard-class, title: DOT hazard class must be between 1 and 9, status: 400, detail: dot hazard class must be between 1 and 9, instance: /products/SKU-1/classification }
+            dotNotApplicable:
+              summary: DOT hazard class without Hazmat
+              value: { type: https://errors.product-master.warehouse-systems.dev/dot-hazard-class-not-applicable, title: DOT hazard class is only meaningful when the hazmat tag is present, status: 400, detail: dot hazard class is only meaningful when the hazmat tag is present, instance: /products/SKU-1/classification }
+            malformedBody:
+              summary: Malformed JSON body
+              value: { type: https://errors.product-master.warehouse-systems.dev/malformed-request, title: Malformed request, status: 400, detail: request body is not valid JSON for this operation, instance: /products/SKU-1/classification }
+    InvalidDimensions:
+      description: A dimension or the weight is out of bounds, a field is missing, or `measuredAt` is missing or in the future.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            dimensionOutOfRange:
+              summary: Dimension out of range
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-dimension, title: Dimension out of range, status: 400, detail: "each dimension must be 1..20000 mm", instance: /products/SKU-1/dimensions/declared }
+            weightOutOfRange:
+              summary: Weight out of range
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-weight, title: Weight out of range, status: 400, detail: "weight must be 1..2000000 g", instance: /products/SKU-1/dimensions/declared }
+            measuredAtInFuture:
+              summary: measuredAt in the future
+              value: { type: https://errors.product-master.warehouse-systems.dev/measured-at-in-future, title: Measurement time is in the future, status: 400, detail: measuredAt is after the current time, instance: /products/SKU-1/dimensions/measured }
+            malformedBody:
+              summary: Malformed JSON body or missing field
+              value: { type: https://errors.product-master.warehouse-systems.dev/malformed-request, title: Malformed request, status: 400, detail: request body is not valid JSON for this operation, instance: /products/SKU-1/dimensions/measured }
+    ProductNotFound:
+      description: The SKU is not registered.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://errors.product-master.warehouse-systems.dev/product-not-found
+            title: Product not found
+            status: 404
+            detail: product not found
+            instance: /products/SKU-UNKNOWN
+    ConcurrentModification:
+      description: Another request changed the product between this request's read and write; re-fetch and retry.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://errors.product-master.warehouse-systems.dev/concurrent-modification
+            title: The resource was modified by another request; re-fetch the latest version and retry
+            status: 409
+            detail: concurrent modification
+            instance: /products/SKU-1
+    InternalError:
+      description: Unexpected server error.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          example:
+            type: https://errors.product-master.warehouse-systems.dev/internal-error
+            title: Internal server error
+            status: 500
+            detail: an unexpected error occurred
+            instance: /products/SKU-1
+
+  schemas:
+    HandlingTag:
+      type: string
+      description: Closed set of handling tags.
+      enum: [Hazmat, Fragile, TemperatureSensitive, Oversized, HighValue]
+    TemperatureClass:
+      type: string
+      description: Storage temperature band required by a TemperatureSensitive product.
+      enum: [Ambient, Chilled, Frozen]
+    ClassificationSource:
+      type: string
+      description: "`native` = authored in product-master; `legacy-import` = imported from inventory-storage during the migration (ADR 0003)."
+      enum: [native, legacy-import]
+    EffectiveSource:
+      type: string
+      description: Which part of the physical profile the effective values come from.
+      enum: [measured, declared, none]
+
+    RegisterProductRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        description:
+          type: string
+          maxLength: 200
+          description: Operator-facing description; may be empty.
+    ClassifyProductRequest:
+      type: object
+      additionalProperties: false
+      required: [handlingTags]
+      properties:
+        handlingTags:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/HandlingTag"
+        temperatureClass:
+          $ref: "#/components/schemas/TemperatureClass"
+        dotHazardClass:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 9
+          nullable: true
+          description: Optional top-level US DOT hazard class; only allowed with Hazmat.
+    UnitDimensionsInput:
+      type: object
+      additionalProperties: false
+      required: [lengthMm, widthMm, heightMm, weightG]
+      properties:
+        lengthMm: { type: integer, format: int64, minimum: 1, maximum: 20000, description: Length of one unit in millimetres. }
+        widthMm: { type: integer, format: int64, minimum: 1, maximum: 20000, description: Width of one unit in millimetres. }
+        heightMm: { type: integer, format: int64, minimum: 1, maximum: 20000, description: Height of one unit in millimetres. }
+        weightG: { type: integer, format: int64, minimum: 1, maximum: 2000000, description: Weight of one unit in grams. }
+    MeasurementInput:
+      type: object
+      additionalProperties: false
+      required: [lengthMm, widthMm, heightMm, weightG, measuredAt]
+      properties:
+        lengthMm: { type: integer, format: int64, minimum: 1, maximum: 20000, description: Measured length of one unit in millimetres. }
+        widthMm: { type: integer, format: int64, minimum: 1, maximum: 20000, description: Measured width of one unit in millimetres. }
+        heightMm: { type: integer, format: int64, minimum: 1, maximum: 20000, description: Measured height of one unit in millimetres. }
+        weightG: { type: integer, format: int64, minimum: 1, maximum: 2000000, description: Measured weight of one unit in grams. }
+        measuredAt:
+          type: string
+          format: date-time
+          description: When the unit was measured; not in the future.
+        deviceId:
+          type: string
+          maxLength: 64
+          description: Measuring device identifier; omit for a manual measurement.
+
+    UnitDimensions:
+      type: object
+      required: [lengthMm, widthMm, heightMm, weightG, volumeMm3]
+      properties:
+        lengthMm: { type: integer, format: int64 }
+        widthMm: { type: integer, format: int64 }
+        heightMm: { type: integer, format: int64 }
+        weightG: { type: integer, format: int64 }
+        volumeMm3: { type: integer, format: int64, description: length x width x height. }
+    Measurement:
+      allOf:
+        - $ref: "#/components/schemas/UnitDimensions"
+        - type: object
+          required: [measuredAt]
+          properties:
+            measuredAt: { type: string, format: date-time }
+            deviceId: { type: string }
+    PhysicalProfile:
+      type: object
+      required: [effectiveSource, discrepancy]
+      properties:
+        declared: { $ref: "#/components/schemas/UnitDimensions" }
+        measured: { $ref: "#/components/schemas/Measurement" }
+        effective: { $ref: "#/components/schemas/UnitDimensions" }
+        effectiveSource: { $ref: "#/components/schemas/EffectiveSource" }
+        discrepancy:
+          type: boolean
+          description: True when declared and measured both exist and volume or weight differ by more than 10 % of the declared value.
+        version:
+          type: integer
+          format: int64
+          description: The product version after this read or change (present on write responses).
+    ProductClassification:
+      type: object
+      required: [sku, handlingTags, classificationSource, version]
+      properties:
+        sku: { type: string, example: SKU-1 }
+        handlingTags:
+          type: array
+          items: { $ref: "#/components/schemas/HandlingTag" }
+          description: Stable enum order.
+        temperatureClass:
+          $ref: "#/components/schemas/TemperatureClass"
+        dotHazardClass:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 9
+          nullable: true
+        classificationSource: { $ref: "#/components/schemas/ClassificationSource" }
+        version: { type: integer, format: int64 }
+    Classification:
+      type: object
+      required: [handlingTags, classificationSource]
+      properties:
+        handlingTags:
+          type: array
+          items: { $ref: "#/components/schemas/HandlingTag" }
+        temperatureClass: { $ref: "#/components/schemas/TemperatureClass" }
+        dotHazardClass: { type: integer, format: int32, minimum: 1, maximum: 9, nullable: true }
+        classificationSource: { $ref: "#/components/schemas/ClassificationSource" }
+    Product:
+      type: object
+      required: [sku, description, version, physicalProfile]
+      properties:
+        sku: { type: string, example: SKU-1 }
+        description: { type: string }
+        version: { type: integer, format: int64, description: "Starts at 1, +1 per accepted change." }
+        classification: { $ref: "#/components/schemas/Classification" }
+        physicalProfile: { $ref: "#/components/schemas/PhysicalProfile" }
+    ProductPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Product" }
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page.
+    Problem:
+      type: object
+      description: RFC 7807 problem document used for every non-2xx response.
+      required: [type, title, status, detail]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer, format: int32 }
+        detail: { type: string }
+        instance: { type: string }
+    Status:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, example: ok }

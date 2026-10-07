@@ -5,16 +5,12 @@ paths:
   - "apis/asyncapi*"
 ---
 
-<!-- TEMPLATE (warehouse-harness-template v2): fill in every "FILL IN" for
-     THIS repo, or delete this file if the repo publishes/consumes no Kafka
-     events. The "CloudEvents 1.0 is MANDATORY" section is NOT a
-     placeholder: keep it verbatim, only substitute the per-repo values. -->
 # Cross-service integration events (Kafka)
 
-FILL IN: state whether this service PUBLISHES, CONSUMES, or both, and
-to/from which topic(s). Fleet naming: `warehouse.<context>.events`
-(integration) and `warehouse.<context>.analytics` (consumed only by this
-service's own analytics projector).
+This service PUBLISHES product master data on `warehouse.product-master.events`
+(through the transactional outbox) and, during the migration only (ADR 0003),
+CONSUMES inventory-storage's legacy `ProductClassified` from
+`warehouse.inventory.events`. No analytics topic yet (ADR 0004).
 
 ## Events: CloudEvents 1.0 is MANDATORY
 
@@ -47,8 +43,7 @@ not a preference — there is nothing to "choose" here:
   `dataschema=urn:warehouse:<repo>:<events|analytics>:<EventName>:v<N>`.
   No custom extension attributes without an ADR.
 - `type` = `com.warehouse.<subdomain>.<bounded-context>.<entity>.<EventName>`
-  (subdomain `wms` or `wes`; FILL IN this repo's exact prefix, e.g.
-  `com.warehouse.wes.order-management`). The SAME `type` names the
+  (this repo: `com.warehouse.wms.product-master`). The SAME `type` names the
   occurrence on both the integration and the analytics topic; `dataschema`
   names the payload shape. Breaking payload change => new `.v2` type + new
   dataschema version, never mutate an existing one.
@@ -64,30 +59,39 @@ not a preference — there is nothing to "choose" here:
 
 Full standard, subdomain table and the fleet's cross-service type
 catalogue: warehouse-docs `docs/strategic-design/event-standard-cloudevents.md`.
-Record it in this repo as its own ADR "CloudEvents 1.0 as the mandatory
-event envelope" under `docs/docs/adr/`.
+This repo's ADR: `docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`.
 
 ### Published types
 
-FILL IN: one row per published event, exact strings.
+Topic `warehouse.product-master.events`; `subject` and Kafka key = the SKU.
 
-| `type` | topic(s) | `subject` | `dataschema` |
-| --- | --- | --- | --- |
-| `com.warehouse.<sub>.<ctx>.<entity>.<EventName>` | `warehouse.<ctx>.events` | aggregate id | `urn:warehouse:<repo>:events:<EventName>:v1` |
+| `type` | `dataschema` |
+| --- | --- |
+| `com.warehouse.wms.product-master.product.ProductRegistered` | `urn:warehouse:product-master:events:ProductRegistered:v1` |
+| `com.warehouse.wms.product-master.product.ProductDescriptionChanged` | `urn:warehouse:product-master:events:ProductDescriptionChanged:v1` |
+| `com.warehouse.wms.product-master.product.ProductClassified` | `urn:warehouse:product-master:events:ProductClassified:v1` |
+| `com.warehouse.wms.product-master.product.ProductDimensionsDeclared` | `urn:warehouse:product-master:events:ProductDimensionsDeclared:v1` |
+| `com.warehouse.wms.product-master.product.ProductMeasured` | `urn:warehouse:product-master:events:ProductMeasured:v1` |
+
+Every payload carries `sku` and `version`. Consumers keep a local copy per SKU
+and apply a message only when `version` > stored version (full-state per
+concern: classification, physical profile). `ProductClassified` keeps
+inventory-storage v1 field names (`sku`, `handling_tags`, `temperature_class`,
+`dot_hazard_class`) plus `classification_source` and `version`. Optional fields
+are omitted when unset. Golden exact-JSON tests pin every type.
 
 ### Consumed types
 
-FILL IN: one row per consumed event — the EXACT `type` string from the
-producer's catalogue (byte-identical; see the cross-service catalogue on the
-Event Standard page).
-
 | `type` | topic | producer |
 | --- | --- | --- |
+| `com.warehouse.wms.inventory-storage.product.ProductClassified` | `warehouse.inventory.events` | inventory-storage (legacy, ADR 0003; removed at stage E) |
 
 ## Consumer group id
 
-If this service consumes Kafka: state where the consumer group id comes
-from. It MUST be env-configurable, never a hardcoded string literal --
+The legacy importer's group id comes from env `LEGACY_IMPORT_CONSUMER_GROUP`
+(unset = importer not started). It is a STABLE group (at-least-once,
+`FetchMessage` + `CommitMessages` after the unit of work that claims the
+CloudEvents `id` and applies the import). Any consumer group id MUST be env-configurable, never a hardcoded string literal --
 `internal/architecture/fitness_test.go`'s
 TestKafkaConsumerGroupNeverHardcodedInline enforces this (a real incident:
 wes-work-planning's hardcoded group id let a locally-run e2e-tests process
