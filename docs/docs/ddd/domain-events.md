@@ -55,9 +55,17 @@ alters nothing raises no event.
 Event order for a legacy import of an unknown SKU: `ProductRegistered`
 (version 1) then `ProductClassified` (version 2), in one transaction.
 
+### Analytics copy
+
+Every event above is ALSO written, in the same outbox transaction and under
+the same CloudEvents `id`, to `warehouse.product-master.analytics`
+(dataschema `urn:warehouse:product-master:analytics:<EventName>:v1`, same
+payload), consumed only by this service's `product-projector` for the master
+data quality report (ADR 0006).
+
 ### Not published
 
-No analytics topic in v1 (ADR 0004). No "unclassify" event exists.
+No "unclassify" event exists.
 
 ## Consumed
 

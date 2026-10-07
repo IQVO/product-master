@@ -143,7 +143,13 @@ func legacyEvent(t *testing.T, id string, data map[string]any) []byte {
 
 func publish(t *testing.T, brokers []string, topic string, msgs ...kafkago.Message) {
 	t.Helper()
-	w := &kafkago.Writer{Addr: kafkago.TCP(brokers...), Topic: topic, Balancer: &kafkago.Hash{}, RequiredAcks: kafkago.RequireAll, BatchTimeout: 10 * time.Millisecond}
+	// A fresh Transport per writer: kafka-go's DefaultTransport is shared by
+	// every Writer in the process and caches cluster metadata (6s TTL), so a
+	// topic created by this test after another test of the package already
+	// wrote through it would look unknown ("Unknown Topic Or Partition").
+	transport := &kafkago.Transport{}
+	defer transport.CloseIdleConnections()
+	w := &kafkago.Writer{Addr: kafkago.TCP(brokers...), Topic: topic, Balancer: &kafkago.Hash{}, RequiredAcks: kafkago.RequireAll, BatchTimeout: 10 * time.Millisecond, Transport: transport}
 	defer w.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

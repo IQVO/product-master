@@ -42,7 +42,7 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | Gateway / Open Host Service | **Yes** | REST plus the `warehouse.product-master.events` Published Language. |
 | Execution context | No | It never moves goods or work. |
 | Analysis context | No | No computation over sets; `Discrepancy` is a per-product flag. |
-| Analytics / reporting | No | No analytics topic in v1 (ADR 0004). |
+| Analytics / reporting | Yes (own data product) | `warehouse.product-master.analytics` -> `product-projector` -> analytical DB -> `product-reports` (`GET /reports/master-data-quality`, ADR 0006). |
 
 ## Inbound Communication
 
