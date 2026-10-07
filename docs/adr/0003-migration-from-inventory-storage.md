@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-10-06). Companion decisions: inventory-storage ADR 0033
+Accepted (2026-10-06). Companion decisions: inventory-storage ADR 0034
 (hand-over) and one ADR in each of order-management, wes-work-planning and
 fulfillment-execution (local copy instead of live lookup).
 
@@ -51,7 +51,7 @@ downstream copies fill from one topic only.
 
 inventory-storage gains a one-shot command that re-emits every row of
 `product_classifications` as its existing `ProductClassified` event through its
-outbox (details in inventory-storage ADR 0033). The payload is a full-state
+outbox (details in inventory-storage ADR 0034). The payload is a full-state
 replacement, so running it twice is harmless. The importer above turns it into
 product-master data.
 

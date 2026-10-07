@@ -268,7 +268,7 @@ components:
         `type` = `com.warehouse.wms.inventory-storage.product.ProductClassified`,
         source `/warehouse/inventory-storage`, dataschema
         `urn:warehouse:inventory-storage:events:ProductClassified:v1`. Produced
-        by inventory-storage (its ADR 0031); retired by its ADR 0033.
+        by inventory-storage (its ADR 0031); retired by its ADR 0034.
       contentType: application/cloudevents+json
       tags:
         - name: consumed
