@@ -10,7 +10,11 @@ paths:
 This service PUBLISHES product master data on `warehouse.product-master.events`
 (through the transactional outbox) and, during the migration only (ADR 0003),
 CONSUMES inventory-storage's legacy `ProductClassified` from
-`warehouse.inventory.events`. No analytics topic yet (ADR 0004).
+`warehouse.inventory.events`. It also writes every published event, in the
+same outbox transaction and under the same CloudEvents `id`, to its own
+analytics topic `warehouse.product-master.analytics`, consumed only by
+`cmd/product-projector` (ADR 0006; DLQ
+`warehouse.product-master.analytics.dlq`, group env `ANALYTICS_CONSUMER_GROUP`).
 
 ## Events: CloudEvents 1.0 is MANDATORY
 

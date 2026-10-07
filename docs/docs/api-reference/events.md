@@ -66,7 +66,17 @@ CloudEvent is logged and skipped. The importer is removed at migration stage E
 ([ADR 0003](/docs/adr/0003-migration-from-inventory-storage)). Details on
 [Upstream contracts](/docs/ecosystem/upstream-contracts).
 
-No analytics topic exists in v1 (ADR 0004, "Not published (yet)").
+## Analytics stream (ADR 0006)
+
+The same five types are ALSO written, in the same outbox transaction, to
+`warehouse.product-master.analytics`: same `type`, same `id` per occurrence,
+`dataschema` `urn:warehouse:product-master:analytics:<EventName>:v1`, payloads
+equal to the integration payloads. Only this service's `product-projector`
+consumes it (fixed consumer group `ANALYTICS_CONSUMER_GROUP`, poison to
+`warehouse.product-master.analytics.dlq`) to feed the master data quality
+report (`GET /reports/master-data-quality` on `product-reports`). It is not
+an integration contract: subscribe to `warehouse.product-master.events`
+instead ([ADR 0006](/docs/adr/0006-analytics-read-side)).
 
 ## Example
 

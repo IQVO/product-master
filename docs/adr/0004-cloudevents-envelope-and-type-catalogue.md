@@ -71,10 +71,27 @@ Payload rules:
 Every other type on that topic is ignored. A message that is not a valid
 CloudEvent is logged and skipped, never retried forever.
 
-### Not published (yet)
+### Published on `warehouse.product-master.analytics` (ADR 0006)
 
-No analytics topic in v1. `warehouse.product-master.analytics`, a projector
-and reports follow in a later phase with their own ADR.
+The same five types, written by the same outbox in the same transaction as
+the integration rows, with the **same `type` and the same `id` per
+occurrence**, `subject` and Kafka key = the SKU, and
+`dataschema` `urn:warehouse:product-master:analytics:<EventName>:v1`. The
+payloads equal the integration payloads. Only this service's
+`product-projector` consumes the topic (fixed consumer group from
+`ANALYTICS_CONSUMER_GROUP`); poison goes to
+`warehouse.product-master.analytics.dlq`. It is not an integration contract:
+other contexts read `warehouse.product-master.events`.
+
+| type | analytics dataschema |
+|---|---|
+| `com.warehouse.wms.product-master.product.ProductRegistered` | `urn:warehouse:product-master:analytics:ProductRegistered:v1` |
+| `com.warehouse.wms.product-master.product.ProductDescriptionChanged` | `urn:warehouse:product-master:analytics:ProductDescriptionChanged:v1` |
+| `com.warehouse.wms.product-master.product.ProductClassified` | `urn:warehouse:product-master:analytics:ProductClassified:v1` |
+| `com.warehouse.wms.product-master.product.ProductDimensionsDeclared` | `urn:warehouse:product-master:analytics:ProductDimensionsDeclared:v1` |
+| `com.warehouse.wms.product-master.product.ProductMeasured` | `urn:warehouse:product-master:analytics:ProductMeasured:v1` |
+
+(Updated 2026-10-07: v1 shipped without an analytics topic; ADR 0006 added it.)
 
 ## Consequences
 
