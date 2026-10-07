@@ -3,8 +3,6 @@ name: how-to-write-an-adr
 description: Write an Architecture Decision Record in this repo's numbering and format, including companion ADRs for cross-repo changes. Use when a design decision should be recorded or a change contradicts an existing ADR.
 ---
 
-<!-- TEMPLATE NOTE (warehouse-harness-template v2): adapt every repo-specific example in this file (file paths, type names, field names) to THIS repo real code. Do not copy-paste verbatim. -->
-
 # How to write an ADR
 
 Use when a change is architecturally significant — a new bounded-context
@@ -15,46 +13,26 @@ addition inside an already-decided architecture doesn't.
 
 ## Numbering and location
 
-`docs/docs/adr/NNNN-kebab-case-title.md`, four-digit zero-padded,
-sequential — check the highest existing number
-(`git ls-tree --name-only origin/develop -- docs/docs/adr/` and pick the
-next integer, never reuse or guess). `docs/docs/adr/about.md` explains the
-format to readers; you don't need to touch it when adding a new ADR.
+`docs/adr/NNNN-kebab-case-title.md`, four-digit zero-padded, sequential —
+check the highest existing number
+(`git ls-tree --name-only origin/develop -- docs/adr/`) and pick the next
+integer, never reuse or guess. This repo has no Docusaurus site yet, so an
+ADR is a plain Markdown file with no frontmatter.
 
-## Frontmatter (Docusaurus needs all five fields)
-
-```yaml
----
-id: NNNN-kebab-case-title
-slug: /adr/NNNN-kebab-case-title
-title: "NN. Title (a short noun phrase, matching the heading)"
-sidebar_label: "NN. Short label for the nav sidebar"
-sidebar_position: NN
-description: "One or two sentences — this shows up in search and link
-  previews, so make it stand alone without the rest of the doc."
----
-```
-
-`id`/`slug` are the full kebab-case filename (minus `.md`); `title`/
-`sidebar_label` repeat the number as plain text (`"13. ..."`, not `#13`);
-`sidebar_position` is the bare integer. Getting these inconsistent is the
-most common cause of a broken sidebar entry or 404 after merge — verify
-by running the docs build (see below) before opening the PR.
-
-## Format: Michael Nygard's template
+## Format: Michael Nygard's template, as this repo writes it
 
 ```markdown
-# NNNN. Title (a short noun phrase)
+# ADR NNNN: Title (a short noun phrase)
 
 ## Status
-Accepted | Proposed | Deprecated | Superseded by ADR-XXXX
+
+Accepted (YYYY-MM-DD). | Proposed | Superseded by ADR XXXX
 
 ## Context
 The forces at play — technical, business, constraints — that make this
 decision necessary. Write in the past tense, as if explaining to someone
 who wasn't there. State the alternatives seriously considered, not just
-the one chosen; a reader six months from now needs to know a simpler
-option was weighed and rejected, not assume nobody thought of it.
+the one chosen.
 
 ## Decision
 What was actually decided, stated as an active, present-tense
@@ -70,41 +48,34 @@ lists benefits reads as marketing, not a decision record.
 ```
 
 The `## Decision` section is the part worth the most editing effort: see
-ADR-0013 (`docs/docs/adr/0013-location-classification-via-facility-events.md`)
-for a model example — it states the exact mechanism (event-fed local
-cache replacing a synchronous HTTP read), names the readiness-gate design,
-and is specific enough that Task "how-to-add-an-integration-event"'s
-consumer-group guidance can point straight at it.
+`docs/adr/0003-migration-from-inventory-storage.md` for a model example — it
+states the exact mechanism (a staged strangler migration over event-carried
+state transfer), names the consumer group env var, the dedupe and the
+"never overwrite a native classification" rule, and is specific enough that
+`internal/adapters/inbound/kafka/legacy_importer.go` was built straight
+from it.
 
 ## Superseding an earlier ADR
 
-Don't edit the old ADR's Decision section. Add a `## Status` line noting
-`Superseded by ADR-XXXX` on the OLD one (a one-line patch), and open the
-new ADR referencing it: `**Accepted.** <date>. Supersedes [NN. Old title](./NNNN-old-slug.md).`
-— see ADR-0015 (`0015-remove-rest-identity-layer.md`) for the exact
-wording pattern superseding ADR-0014.
+Don't edit the old ADR's Decision section. Change the OLD ADR's
+`## Status` to `Superseded by ADR XXXX` (a one-line patch), and open the
+new ADR stating in its own Status section which ADR it supersedes.
 
 ## Cross-repo decisions: use a companion ADR, not one repo's private opinion
 
-When a decision genuinely spans two bounded-context repos (e.g.
-facility-layout's functional-location roles enabling wes-work-planning's
-travel-graph feature), write ONE ADR per repo, each referencing the other
-explicitly as "the companion ADR" with a one-line description of the
-split of responsibility — see facility-layout's ADR-0016/0017 pair. Don't
-write the decision once in one repo and expect the other repo's readers
-to find it; each bounded context's docs site is read independently.
+When a decision genuinely spans bounded-context repos, write ONE ADR per
+repo, each referencing the others explicitly as companion ADRs with a
+one-line description of the split of responsibility — see the Status
+section of `docs/adr/0003-migration-from-inventory-storage.md`, which names
+inventory-storage's hand-over ADR and the consumer-side ADRs in
+order-management, wes-work-planning and fulfillment-execution. Don't write
+the decision once in one repo and expect the other repo's readers to find
+it; each bounded context's docs are read independently.
 
-## After writing: regenerate and verify the docs build
+## After writing
 
-```bash
-cd docs
-npm ci
-npm run build   # onBrokenLinks / onBrokenAnchors are both 'throw' — this
-                 # WILL fail if the frontmatter/slug is wrong or a
-                 # cross-reference link is broken
-```
-
-A broken ADR link or malformed frontmatter fails the build with a clear
-Docusaurus error, not a silent 404 — always run this locally before
-opening the PR; several repos in this fleet gate this in CI
-(`docs-api-drift`/dedicated docs build job) but not all yet.
+If the ADR changes the published or consumed event types, update the
+catalogue in `docs/adr/0004-cloudevents-envelope-and-type-catalogue.md`
+together with `apis/asyncapi.yaml`: `TestEventCatalogueMatchesContract`
+(`make arch-test`) fails if they drift. Run `make guide-lint` if the ADR
+renames anything a rule or skill cites.
