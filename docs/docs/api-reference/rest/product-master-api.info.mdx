@@ -1,0 +1,70 @@
+---
+id: product-master-api
+title: "Product Master API"
+description: "The WMS-tier source of truth for SKU-level product master data in the"
+sidebar_label: Introduction
+sidebar_position: 0
+hide_title: true
+custom_edit_url: null
+---
+
+import ApiLogo from "@theme/ApiLogo";
+import Heading from "@theme/Heading";
+import SchemaTabs from "@theme/SchemaTabs";
+import TabItem from "@theme/TabItem";
+import Export from "@theme/ApiExplorer/Export";
+
+<span
+  className={"theme-doc-version-badge badge badge--secondary"}
+  children={"Version: 1.0.0"}
+>
+</span>
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Product Master API"}
+>
+</Heading>
+
+
+
+The WMS-tier source of truth for SKU-level product master data in the
+warehouse-systems platform (ADR 0001): what a SKU *is* for handling
+purposes (its classification) and physically (declared and measured unit
+dimensions and weight, ADR 0002). It answers no "where" or "how many"
+question; stock lives in inventory-storage.
+
+Every write is an idempotent `PUT`: repeating a request with the same body
+changes nothing, bumps no version and publishes no event. Accepted changes
+are published as CloudEvents on `warehouse.product-master.events` through a
+transactional outbox (see `apis/asyncapi.yaml`); sibling contexts keep a
+local copy from those events and never call this API at request time.
+
+Errors are RFC 7807 problem documents with
+`type = https://errors.product-master.warehouse-systems.dev/<slug>`.
+There is no authentication layer (fleet decision 2026-09-11).
+
+
+<div
+  style={{"display":"flex","flexDirection":"column","marginBottom":"var(--ifm-paragraph-margin-bottom)"}}
+>
+  <h3
+    style={{"marginBottom":"0.25rem"}}
+  >
+    Contact
+  </h3><span>
+    product-master maintainers: 
+  </span><span>
+    URL: [https://github.com/IQVO/product-master](https://github.com/IQVO/product-master)
+  </span>
+</div><div
+  style={{"marginBottom":"var(--ifm-paragraph-margin-bottom)"}}
+>
+  <h3
+    style={{"marginBottom":"0.25rem"}}
+  >
+    License
+  </h3>
+</div>
+      

@@ -1,0 +1,1 @@
+{"title":"Body","body":{"required":true,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"properties":{"description":{"type":"string","maxLength":200,"description":"Operator-facing description; may be empty."}},"title":"RegisterProductRequest"},"example":{"description":"Lithium battery pack 12V"}}}}}
