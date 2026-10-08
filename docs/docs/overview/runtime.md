@@ -14,14 +14,16 @@ fitness tests in `internal/architecture`:
 | Layer | Path |
 | --- | --- |
 | Domain | `internal/domain/product` |
-| Application (use cases, ports) | `internal/application/{usecases,ports,repository,outbox}` |
-| Inbound adapters | `internal/adapters/inbound/http` (REST), `internal/adapters/inbound/kafka` (legacy importer) |
-| Outbound adapters | `internal/adapters/outbound/{postgres,memory,kafka,outbox,clock,telemetry}` |
+| Application (use cases, ports) | `internal/application/{usecases,ports,repository,outbox}`; analytics read model in `internal/analytics` |
+| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (legacy importer, analytics consumer), `internal/adapters/inbound/mcp` (read-only MCP tools) |
+| Outbound adapters | `internal/adapters/outbound/{postgres,memory,kafka,outbox,clock,telemetry,analyticsstore}` |
 | CloudEvents helper | `internal/adapters/kafka/cloudevents` |
-| Composition root | `cmd/api/main.go` |
+| Composition roots | `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `cmd/product-reports/main.go` |
 
 The domain imports nothing internal but itself; adapters never import each
-other; only `cmd/api` wires them.
+other; only `cmd/*` wires them. This page describes `cmd/api`; the MCP server
+is covered by [ADR 0005](/docs/adr/0005-mcp-server-adoption) and the analytics
+binaries by [ADR 0006](/docs/adr/0006-analytics-read-side).
 
 ## Writing: one unit of work per command
 
