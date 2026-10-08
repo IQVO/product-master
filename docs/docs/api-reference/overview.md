@@ -9,7 +9,8 @@ sidebar_position: 1
 
 | Interface | Source of truth | Notes |
 | --- | --- | --- |
-| REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 1.0.0) | Pages under *REST* are generated from the spec; do not edit them by hand. Servers: `http://localhost:8080` (local) and `http://localhost:8000/api/product-master` (kind cluster through Kong). |
+| REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 1.0.0) | Pages under *REST* are generated from the spec; do not edit them by hand. Servers: `http://localhost:8080` (local) and `http://localhost:8000/api/product-master` (kind cluster through Kong). The `Reports` paths name their own server, `http://localhost:8092` (`cmd/product-reports`). |
+| MCP | `internal/adapters/inbound/mcp` (registry golden `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`) | Read-only tools `get_product`, `list_products`, `get_product_classification`, `get_physical_profile` on `cmd/mcp` (`:8090`, `/` and `/mcp`); [ADR 0005](/docs/adr/0005-mcp-server-adoption). |
 | Events | `apis/asyncapi.yaml` (AsyncAPI 2.6.0, version 1.0.0) | Summarised on the [event catalogue](/docs/api-reference/events). |
 
 ## Conventions
@@ -49,9 +50,20 @@ sidebar_position: 1
 | `Classification` | `PUT /products/{sku}/classification` (201 first / 200 replaced or unchanged), `GET /products/{sku}/classification` |
 | `Physical profile` | `PUT /products/{sku}/dimensions/declared`, `PUT /products/{sku}/dimensions/measured` (409 `stale-measurement`), `GET /products/{sku}/physical-profile` |
 | `Health` | `GET /healthz` (liveness), `GET /readyz` (`503` once shutdown has started) |
+| `Reports` | `GET /reports/master-data-quality`, `GET /reports/freshness`, served by `cmd/product-reports` (`:8092`), not by `cmd/api` ([ADR 0006](/docs/adr/0006-analytics-read-side)) |
 
 `cmd/api` also serves `GET /metrics` (Prometheus, Go runtime and process
 collectors); it is not in the spec.
+
+:::caution Known issue: reports through Kong
+In the kind cluster, `http://localhost:8000/api/product-master/reports/*`
+returns `404`: warehouse-infra's reports route is shadowed by the
+`/api/product-master` route, so the request reaches `cmd/api`, which has no
+`/reports/*` path. The reports service works in-cluster (Service
+`product-master-reports`); use
+`kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`
+until the route is fixed in warehouse-infra.
+:::
 
 ## Regenerating the REST reference
 

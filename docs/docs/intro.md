@@ -25,7 +25,10 @@ question: stock lives in `inventory-storage`.
 | Subdomain classification | Supporting ([ADR 0001](/docs/adr/0001-product-master-bounded-context)) |
 | Tier | `wms` (CloudEvents type prefix `com.warehouse.wms.product-master.*`; the third `wms` context after `facility-layout` and `inventory-storage`) |
 | Language / style | Go backend, hexagonal architecture (ports and adapters) |
-| Inbound adapters | REST (`cmd/api`, `:8080`) and, during the migration only, the legacy classification importer (Kafka) |
+| Inbound adapters | REST (`cmd/api`, `:8080`), a read-only MCP server (`cmd/mcp`, `:8090`, [ADR 0005](/docs/adr/0005-mcp-server-adoption)) and, during the migration only, the legacy classification importer (Kafka) |
+| Read side | Analytics stream, `cmd/product-projector` and `cmd/product-reports` (master data quality report, [ADR 0006](/docs/adr/0006-analytics-read-side)) |
+| UI | `productmaster_mfe` Module Federation remote (`web/`), hosted by the warehouse-console shell |
+| Deployed | kind cluster via warehouse-infra: Kong `/api/product-master`, web gateway `/mfes/product-master/`, in-cluster MCP and reports (see [Runtime surface](/docs/overview/context#runtime-surface), including the reports Kong route known issue) |
 | Integration | Kafka CloudEvents 1.0 (structured mode), transactional outbox for publishing |
 | Auth | None on REST (fleet-wide revert of 2026-09-11) |
 

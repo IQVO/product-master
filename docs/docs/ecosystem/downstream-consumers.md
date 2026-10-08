@@ -43,5 +43,12 @@ stow) and `warehouse-planning` (cube-based storage capacity). None is built.
 ## Operators, console and agents
 
 ADR 0001 lists `warehouse-ops-agent` and `warehouse-console` as Open Host
-Service customers (REST and MCP read tools). On `develop` this repository
-serves REST only; neither of those repositories calls it yet.
+Service customers. Both are built and deployed in the kind cluster:
+
+| Customer | Surface it uses | Evidence |
+| --- | --- | --- |
+| `warehouse-ops-agent` | The read-only MCP server (`cmd/mcp`, ADR 0005) at `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, configured as `PRODUCT_MASTER_MCP_ENDPOINT`. Its client pins the four tools' schemas; its `find_master_data_gaps` MCP tool and `GET /master-data-gaps` page through `list_products` to report unclassified products and dimension discrepancies. | warehouse-ops-agent ADR 0020, `internal/adapters/outbound/mcpclient/product_master.go` |
+| `warehouse-console` | Hosts this context's own remote, `productmaster_mfe` (`web/`), served at `/mfes/product-master/` and mounted on `/product-master/*` behind the Product Master tile. The remote calls the REST API through Kong at `/api/product-master`. | warehouse-console #66 (`src/App.tsx`, `vite.config.ts`), `web/src/config.ts` |
+
+Neither is a domain context and neither keeps a copy: both read at request
+time, which ADR 0001 allows for operators, the console and agents.
