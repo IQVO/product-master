@@ -32,8 +32,8 @@ check a design decision against this fleet's standing architecture.
    this repo doesn't already integrate with; that's a new architectural
    decision that needs its own ADR, not a code change slipped in
    silently.
-3. **MCP additive-boundary rule (ADR-0008 fleet-wide).** A change under
-   internal/adapters/inbound/mcp (this repo has no MCP adapter yet) must depend only on
+3. **MCP additive-boundary rule (fleet-wide; here ADR 0005).** A change under
+   internal/adapters/inbound/mcp (the read-only MCP adapter, served by cmd/mcp, ADR 0005) must depend only on
    application/domain, and nothing else in the codebase may depend on
    it. If this repo has a `TestMCPAdapterDependencyRule` fitness test,
    confirm it's green; if not, check by eye.
@@ -41,8 +41,8 @@ check a design decision against this fleet's standing architecture.
    documented zero-write constraint (e.g. warehouse-ops-agent v1), check
    no mutating HTTP method or MCP tool without `ReadOnlyHint: true` was
    added to an outbound/inbound surface bound by that constraint.
-4. **Analytics isolation (ADR-0006-style, where a repo has an
-   internal/analytics read side; product-master has none yet).** The OLTP domain/application layers
+4. **Analytics isolation (this repo's ADR 0006).** product-master has an
+   internal/analytics read side (cmd/product-projector, cmd/product-reports). The OLTP domain/application layers
    must never import the analytics store or read model; the analytics
    side must depend on nothing internal except itself. This is a real,
    already-fitness-tested rule in most repos — confirm the test exists
