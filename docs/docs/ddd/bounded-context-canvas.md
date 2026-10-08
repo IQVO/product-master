@@ -9,7 +9,9 @@ sidebar_position: 12
 
 Following the ddd-crew [Bounded Context Canvas v5](https://github.com/ddd-crew/bounded-context-canvas).
 Every message row below maps to a route in `NewRouter`
-(`internal/adapters/inbound/http/server.go`) or to a topic and CloudEvents type
+(`internal/adapters/inbound/http/server.go`), the reports router
+(`internal/adapters/inbound/http/reports_handler.go`), an MCP tool
+(`internal/adapters/inbound/mcp/tools.go`) or to a topic and CloudEvents type
 in `internal/adapters/inbound/kafka/legacy_importer.go` /
 `internal/adapters/outbound/kafka/encoder.go`.
 
@@ -54,10 +56,14 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | Dimensioning device or operator | Record measurement | Command | REST `PUT /products/{sku}/dimensions/measured` | OHS |
 | Operator, console, agent | Get product, classification, physical profile | Query | REST `GET /products/{sku}`, `/classification`, `/physical-profile` | OHS |
 | Operator, console, agent | List products | Query | REST `GET /products` (filters `handlingTag`, `classified`) | OHS |
+| `warehouse-ops-agent` | Get product, list products, get classification, get physical profile | Query | MCP (`cmd/mcp`) tools `get_product`, `list_products`, `get_product_classification`, `get_physical_profile` | OHS, read-only (ADR 0005); its ADR 0020 |
+| `warehouse-console` (hosting `productmaster_mfe`) | All of the REST rows above | Command / Query | REST through Kong `/api/product-master` | OHS; the remote is this context's own code (`web/`) |
+| Operator | Master data quality, freshness | Query | REST `GET /reports/master-data-quality`, `GET /reports/freshness` on `cmd/product-reports` (no console screen or agent uses it yet) | Own data product (ADR 0006) |
 | `inventory-storage` | legacy `ProductClassified` | Event | Kafka `warehouse.inventory.events`, `com.warehouse.wms.inventory-storage.product.ProductClassified` | Conformist, migration only (ADR 0003); group `LEGACY_IMPORT_CONSUMER_GROUP` |
 
-No REST endpoint is authenticated (fleet-wide revert of 2026-09-11). There is
-no MCP server on `develop`.
+No REST endpoint or MCP tool is authenticated (fleet-wide revert of
+2026-09-11). The MCP server is read-only: a governance test fails the build on
+any write-verb tool name (ADR 0005).
 
 ## Outbound Communication
 
