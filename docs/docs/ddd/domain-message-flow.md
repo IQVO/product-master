@@ -75,7 +75,11 @@ Omits: consumers, because no sibling consumes the physical-profile events yet
 
 Stage A and B of [ADR 0003](/docs/adr/0003-migration-from-inventory-storage):
 the importer runs (`LEGACY_IMPORT_CONSUMER_GROUP` set) and an operator runs
-inventory-storage's one-shot backfill command.
+inventory-storage's one-shot backfill command. In the kind cluster the
+importer runs with group `product-master-legacy-import`
+(warehouse-infra `helm-values/product-master.yaml`), and the backfill was run
+once on 2026-10-07 (6 rows). Stage E (removing the importer and the legacy
+type) has not been run.
 
 ```mermaid
 sequenceDiagram

@@ -85,6 +85,16 @@ const sidebars: SidebarsConfig = {
           label: '0004 CloudEvents envelope and type catalogue',
           href: '/docs/adr/0004-cloudevents-envelope-and-type-catalogue',
         },
+        {
+          type: 'link',
+          label: '0005 MCP server adoption',
+          href: '/docs/adr/0005-mcp-server-adoption',
+        },
+        {
+          type: 'link',
+          label: '0006 Analytics read side',
+          href: '/docs/adr/0006-analytics-read-side',
+        },
       ],
     },
   ],
