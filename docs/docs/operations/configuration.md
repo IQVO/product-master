@@ -34,7 +34,7 @@ API are unauthenticated fleet-wide, and access control is the cluster boundary.
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn` or `error` (case-insensitive); anything else is `info`. Unlike the other three binaries, `cmd/api` does not accept `warning`. | `cmd/api/main.go` (`newLogger`) |
 | `SERVICE_VERSION` | `dev` | no | `service.version` resource attribute on every span and metric. The chart sets it to the image tag. | `cmd/api/main.go` (`setupTelemetry`) |
 | `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute on every span and metric. | `internal/adapters/outbound/telemetry/telemetry.go` (`Environment`) |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | no | Comma-separated browser origins allowed by the CORS middleware (entries are trimmed). Allowed methods `GET` and `PUT`, headers `Accept` and `Content-Type`, no credentials. Read once, when the router is built. In the kind cluster Kong's CORS plugin handles browsers, so the chart leaves it unset. | `internal/adapters/inbound/http/server.go` (`corsAllowedOrigins`) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` (the warehouse-console shell's dev port) | no | Comma-separated browser origins allowed by the CORS middleware (entries are trimmed). Allowed methods `GET` and `PUT`, headers `Accept` and `Content-Type`, no credentials. Read once, when the router is built. Add `http://localhost:5191` to run the standalone remote (`web/`, `npm run dev`) against a local API. In the kind cluster Kong's CORS plugin handles browsers, so the chart leaves it unset. | `internal/adapters/inbound/http/server.go` (`corsAllowedOrigins`) |
 
 ## `cmd/mcp` (read-only MCP server)
 

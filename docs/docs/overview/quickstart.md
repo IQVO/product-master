@@ -202,8 +202,9 @@ cd web && npm ci && npm run dev   # productmaster_mfe standalone on :5191
 `web/` depends on a sibling checkout of `warehouse-ui-kit`
 (`file:../../warehouse-ui-kit`), built first. In dev mode the remote calls
 `http://localhost:8080` directly, so start `cmd/api` with
-`CORS_ALLOWED_ORIGINS=http://localhost:5191`: the built-in default
-(`http://localhost:5173`) does not match the remote's dev port.
+`CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5191`: the
+built-in default (`http://localhost:5173`, the console shell's dev port) does
+not include the remote's own dev port.
 
 ## Build the docs site
 

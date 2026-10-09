@@ -92,7 +92,7 @@ failures are absorbed by the outbox.
 | Every MCP tool returns `product-not-found` for SKUs that exist in REST | `cmd/mcp` runs without `DATABASE_URL` (its own empty in-memory store) or against another database. | Log `DATABASE_URL not configured; using the in-memory product repository`. | Give it the same `DATABASE_URL` as `cmd/api`. |
 | Tool result `isError: true` with `internal-error: an unexpected internal error occurred` | Database error behind the read use case. | ERROR `mcp tool failed with an unexpected error`. | Fix the database. |
 | MCP clients lose their session intermittently | More than one `cmd/mcp` replica: sessions live in process memory and the Service has no affinity. | `kubectl get deploy <fullname>-mcp`. | Keep `mcp.replicaCount: 1`. |
-| Browser shows a CORS error when the standalone remote (`npm run dev`, `:5191`) calls `localhost:8080` | `CORS_ALLOWED_ORIGINS` defaults to `http://localhost:5173`. | Response lacks `Access-Control-Allow-Origin`. | Start `cmd/api` with `CORS_ALLOWED_ORIGINS=http://localhost:5191`. In the cluster Kong handles CORS. |
+| Browser shows a CORS error when the standalone remote (`npm run dev`, `:5191`) calls `localhost:8080` | `CORS_ALLOWED_ORIGINS` defaults to `http://localhost:5173` (the console shell's dev port) only. | Response lacks `Access-Control-Allow-Origin`. | Start `cmd/api` with `CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5191`. In the cluster Kong handles CORS. |
 
 ## Shutdown
 
