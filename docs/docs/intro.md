@@ -1,6 +1,7 @@
 ---
 id: intro
 title: Introduction
+sidebar_label: Introduction
 slug: /intro
 sidebar_position: 1
 ---
@@ -67,10 +68,24 @@ barcodes, or any commercial attribute (ADR 0001, "Explicitly out of scope").
 
 ## Where to go next
 
+Getting started and operating it:
+
+- [Quickstart](/docs/overview/quickstart): build, run, seed and call it locally.
+- [Architecture and runtime](/docs/overview/runtime): hexagonal layers, the four binaries and their ports, the container diagram, data stores, outbox and consumers.
+- [Configuration](/docs/operations/configuration): every environment variable of every binary.
+- [Runbook](/docs/operations/runbook): deployment, migrations, topics, relay, DLQ, scaling and routine procedures.
+- [Observability](/docs/operations/observability): metrics, traces, logs and suggested alerts.
+- [Troubleshooting](/docs/operations/troubleshooting): symptom, cause, check, fix.
+- [Testing](/docs/development/testing): the test pyramid, `make` targets and CI jobs.
+- [MCP tools](/docs/mcp/tools): the four read-only tools of `cmd/mcp`.
+
+The domain:
+
 - [Bounded context](/docs/overview/context): purpose, context map, the no-live-lookup rule.
 - [Aggregates](/docs/overview/aggregates): the `Product` aggregate and its invariants.
 - [Physical profile](/docs/overview/physical-profile): declared versus measured, effective values and discrepancy.
+- [Use cases](/docs/ddd/use-cases) and [subdomain classification](/docs/ddd/subdomain-classification).
 - [DDD artifacts](/docs/ddd/ddd-artifacts): the ddd-crew pack (core domain chart, canvases, context map, EventStorming, class, ER and sequence diagrams).
 - [Downstream consumers](/docs/ecosystem/downstream-consumers) and the [legacy upstream contract](/docs/ecosystem/upstream-contracts).
 - [API reference](/docs/api-reference): REST (generated from `apis/openapi.yaml`) and the event catalogue.
-- [Architecture decision records](/docs/adr/0001-product-master-bounded-context).
+- [Architecture decision records](/docs/adr): the index of every ADR with its status.
