@@ -123,12 +123,18 @@ Top terms: **Product**, **SKU**, **Classification**, **Handling tag**,
   `internal/adapters/outbound/kafka/encoder_test.go`).
 - `TestEventCatalogueMatchesContract` checks ADR 0004 against
   `apis/asyncapi.yaml`.
-- `make mutation-fast` (gremlins on `./internal/domain/product`) is blocking in
-  CI; coverage gate 90 % on domain + application.
+- The `mutation-fast` CI job (`make mutation`: gremlins on
+  `./internal/domain/product`) is blocking; the coverage gate is 90 % over
+  `internal/domain`, `internal/application` and `internal/analytics`.
 - Outbox atomicity and relay delivery proven with testcontainers Postgres and
   Kafka (`TestUseCasesCommitProductAndOutboxAtomically`,
+  `TestPgtx_CommitsSaveAndOutboxAtomically`,
+  `TestWiring_RegisterClassifyMeasureLifecycle`,
   `TestRelay_RealPostgresAndKafka_PublishesCloudEventsKeyedBySKU`,
-  `TestLegacyImporter_EndToEnd`).
+  `TestPublisher_RealKafka_CloudEventsEnvelopeAndPayload`,
+  `TestLegacyImporter_EndToEnd`); the REST and MCP wire contracts run against
+  real Postgres too (`TestREST_*`, `TestStreamableHTTP_*`). See
+  [Testing](/docs/development/testing).
 - Migration: ADR 0003's runbook compares the count of classified products
   (`GET /products?classified=true`) with inventory-storage's
   `product_classifications` row count.
