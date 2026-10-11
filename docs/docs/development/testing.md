@@ -17,7 +17,7 @@ and `internal/architecture/`.
 | --- | --- | --- | --- | --- |
 | Unit | Domain invariants, use cases (with fakes), encoders, CloudEvents helper, consumers with fake readers, HTTP handlers via `httptest`, MCP tools in memory, composition-root helpers, the report logic | 40 `*_test.go` files without a build tag, next to the code | `make test` (`go test ./... -race`) | nothing |
 | BDD (godog) | Gherkin acceptance scenarios for every use case, run in process against the in-memory adapters | `features/*.feature`, runner `features_test.go` (`TestFeatures`) | `make bdd` | nothing |
-| Integration | Real Postgres and Kafka started by testcontainers (`postgres:16-alpine`, `confluentinc/confluent-local:7.6.1`) | 9 files with `//go:build integration` | `make integration` (`go test -tags=integration ./... -race -count=1`) | Docker only |
+| Integration | Real Postgres and Kafka started by testcontainers (`postgres:16-alpine`, `confluentinc/confluent-local:7.6.1`) | 14 files with `//go:build integration` (13 suites and one helper) | `make integration` (`go test -tags=integration ./... -race -count=1`) | Docker only |
 | Architecture fitness | Hexagonal layering and fleet rules, as Go tests | `internal/architecture/` | `make arch-test` | nothing |
 | Mutation | gremlins on the domain | `.gremlins.yaml` | `make mutation`, `make mutation-full` | `gremlins` v0.6.0 |
 | Contract | Spectral lint of both specs; the event catalogue fitness test; MCP tool registry golden file | `apis/`, `internal/architecture/catalogue_fitness_test.go`, `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json` | CI `api-lint`; `make test` | Spectral for the lint |
@@ -48,16 +48,42 @@ Every integration test boots its own containers; none reads `DATABASE_URL`,
 are missing (`TestPostgresIntegrationTestsUseTestcontainers` and
 `TestKafkaIntegrationTestsUseTestcontainers` enforce both).
 
-| File | Covers |
-| --- | --- |
-| `internal/adapters/outbound/postgres/product_repository_integration_test.go` (+ `helper_integration_test.go`) | Version guard (`ErrConcurrentModification`), full aggregate round trip, list paging in byte order with filters, product and outbox committed atomically by the real use cases, processed-event claims rolled back with the transaction |
-| `internal/adapters/outbound/postgres/analytics_outbox_integration_test.go` | Fan-out: each event lands on both topics under one id in one transaction; a failure writes neither row |
-| `internal/adapters/outbound/outbox/relay_integration_test.go` | Relay draining Postgres into a real Kafka |
-| `internal/adapters/inbound/kafka/legacy_importer_integration_test.go` | Legacy importer end to end (Kafka and Postgres) |
-| `internal/adapters/inbound/kafka/analytics_consumer_integration_test.go` | Projector consumer against the analytical store |
-| `internal/adapters/outbound/analyticsstore/postgres_integration_test.go` | Analytical migrations, projection and report queries (the same contract test runs against the in-memory store) |
-| `cmd/mcp/main_integration_test.go` | `cmd/mcp` against a real database: reads what the API wrote and never writes |
-| `analytics_e2e_integration_test.go` | Write through the use cases, relay to Kafka, project, read the report |
+The suites use three container shapes:
+
+- **One Postgres per package, a template database, one clone per test.**
+  `TestMain` starts the container, migrates a template database once, and
+  each test gets a private database created `WITH TEMPLATE` from it, so tests
+  are isolated and order-independent. Used by the REST, MCP Streamable HTTP,
+  use-case wiring and `pgtx` suites.
+- **One Kafka broker per package.** A `sync.Once` starts the broker on first
+  use and `TestMain` terminates it; every test creates its own uniquely named
+  topic. Used by the relay, legacy-importer (and the analytics consumer in the
+  same package) and Kafka publisher suites.
+- **One container per test.** A helper starts and migrates a fresh Postgres
+  and terminates it in `t.Cleanup` (the repository suite's helper notes why:
+  its tests assert on whole-table contents). Used by `internal/adapters/outbound/postgres`
+  (`helper_integration_test.go`), the analytical store, `cmd/mcp`, the
+  Postgres side of the relay, legacy-importer and analytics-consumer suites,
+  and both containers of the end-to-end suite.
+
+| File | Tests | Covers |
+| --- | --- | --- |
+| `internal/adapters/outbound/postgres/product_repository_integration_test.go` (+ `helper_integration_test.go`) | `TestProductRepo_VersionGuard`, `TestProductRepo_RoundTripsTheWholeAggregate`, `TestProductRepo_ListPagesInByteOrderWithFilters`, `TestUseCasesCommitProductAndOutboxAtomically`, `TestProcessedEventRepo_ClaimsOnceAndRollsBack` | Version guard (`ErrConcurrentModification`), full aggregate round trip, list paging in byte order with filters, product and outbox committed atomically by the real use cases, processed-event claims rolled back with the transaction |
+| `internal/adapters/outbound/postgres/analytics_outbox_integration_test.go` | `TestFanout_Postgres_EachEventLandsOnBothTopicsUnderOneIDInOneTransaction`, `TestFanout_Postgres_AFailureWritesNeitherTopicsRows` | Fan-out: each event lands on both topics under one id in one transaction; a failure writes neither row |
+| `internal/adapters/outbound/postgres/pgtx/pgtx_integration_test.go` | `TestPgtx_CommitsSaveAndOutboxAtomically`, `TestPgtx_ErrorInsideTheScopeRollsEverythingBack` | The transaction carried in the context by `pgtx`: a register inside `postgres.UnitOfWork` commits the product row and its outbox row together; an error inside the scope rolls both back; outside a unit of work the repositories fall back to the pool |
+| `internal/application/usecases/wiring_integration_test.go` | `TestWiring_RegisterClassifyMeasureLifecycle`, `TestWiring_NoChangeEventPublishesNothing`, `TestWiring_UnknownSKUWriteIsRejected` | The write use cases wired like `cmd/api` (Postgres repositories, `UnitOfWork`, CloudEvents encoder into the outbox): register, re-register, classify and measure bump the version and enqueue one event each, in order; an identical re-register changes and publishes nothing; classifying an unknown SKU leaves no row and no event |
+| `internal/adapters/outbound/kafka/publisher_integration_test.go` | `TestPublisher_RealKafka_CloudEventsEnvelopeAndPayload` | Events raised by the real `Product` aggregate, encoded by the production `Encoder` and sent through the `RelaySink` to a real broker: CloudEvents 1.0 envelope (`type`, `specversion`, `id`, `source`), the pinned payload, the SKU as message key, no duplicate ids |
+| `internal/adapters/outbound/outbox/relay_integration_test.go` | `TestRelay_RealPostgresAndKafka_PublishesCloudEventsKeyedBySKU` | Relay draining Postgres into a real Kafka |
+| `internal/adapters/inbound/kafka/legacy_importer_integration_test.go` | `TestLegacyImporter_EndToEnd` | Legacy importer end to end (Kafka and Postgres) |
+| `internal/adapters/inbound/kafka/analytics_consumer_integration_test.go` | `TestAnalyticsConsumer_RealKafkaAndPostgres` | Projector consumer against the analytical store |
+| `internal/adapters/outbound/analyticsstore/postgres_integration_test.go` | `TestPostgres_Contract`, `TestPostgres_DedupeMarkAndEffectAreAtomic`, `TestPostgres_ReadOnlyPoolCannotWrite`, `TestPostgres_DayWindowsMatchTheGoDefinition` | Analytical migrations, projection and report queries (the same contract test runs against the in-memory store) |
+| `internal/adapters/inbound/http/rest_integration_test.go` | `TestREST_ProductLifecycleEndToEnd`, `TestREST_ValidationAndDomainRejectionsAreProblemDocuments` | The real chi router over the real Postgres-backed use cases, through `httptest`: the PUT lifecycle (`201` then `200`), GET round trips including the list, and RFC 7807 problems (`product-not-found`, `malformed-request`, `invalid-description`, `no-handling-tags`, `temperature-class-not-applicable`, `stale-measurement`) that leave the aggregate unchanged |
+| `internal/adapters/inbound/mcp/streamable_http_integration_test.go` | `TestStreamableHTTP_ListToolsExposesTheReadOnlyContract`, `TestStreamableHTTP_CallToolReadsWhatPostgresPersisted`, `TestStreamableHTTP_RejectionsAreToolErrorsNotTransportErrors` | The MCP handler on a real Streamable HTTP server, driven by the SDK client over data seeded through the write use cases: `tools/list` exposes the four tools, each with `readOnlyHint`; every tool reads what Postgres holds; `product-not-found`, `invalid-sku`, `product-classification-not-found` and `malformed-request` come back as tool errors, not transport errors |
+| `cmd/mcp/main_integration_test.go` | `TestMCPAgainstPostgres_ReadsWhatTheAPIWroteAndNeverWrites` | `cmd/mcp` against a real database: reads what the API wrote and never writes |
+| `analytics_e2e_integration_test.go` | `TestAnalyticsReadSide_EndToEnd` | Write through the use cases, relay to Kafka, project, read the report |
+
+The CI `integration` job runs the same command as `make integration`
+(`./...`), so every suite above runs on every push and pull request.
 
 ### Architecture fitness tests
 
@@ -152,7 +178,9 @@ configured).
   `fakes_test.go`, and a scenario in the matching `features/*.feature`.
 - Adapter touching Postgres or Kafka: an `_integration_test.go` file with
   `//go:build integration` that starts its own container through
-  testcontainers (never `os.Getenv("DATABASE_URL")` plus `t.Skip`).
+  testcontainers (never `os.Getenv("DATABASE_URL")` plus `t.Skip`). For
+  Postgres, the cheapest isolated shape is the `TestMain` plus template
+  database of `internal/application/usecases/wiring_integration_test.go`.
 - New event type: declare it in `apis/asyncapi.yaml` and list it in the
   CloudEvents type catalogue ADR (a `*cloudevents*.md` file under `docs/adr`),
   or `TestEventCatalogueMatchesContract` fails.
