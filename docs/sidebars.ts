@@ -19,6 +19,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       link: {type: 'doc', id: 'overview/context'},
       items: [
+        'overview/quickstart',
         'overview/aggregates',
         'overview/physical-profile',
         'overview/runtime',
@@ -26,10 +27,26 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'Operations',
+      link: {type: 'doc', id: 'operations/runbook'},
+      items: [
+        'operations/configuration',
+        'operations/observability',
+        'operations/troubleshooting',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Development',
+      items: ['development/testing'],
+    },
+    {
+      type: 'category',
       label: 'Domain-Driven Design',
       link: {type: 'doc', id: 'ddd/ubiquitous-language'},
       items: [
         'ddd/use-cases',
+        'ddd/subdomain-classification',
         {
           type: 'category',
           label: 'DDD artifacts (ddd-crew)',
@@ -53,7 +70,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'API Reference',
       link: {type: 'doc', id: 'api-reference/overview'},
-      items: [...apiSidebar, 'api-reference/events'],
+      items: [...apiSidebar, 'api-reference/events', 'mcp/tools'],
     },
     {
       type: 'category',
@@ -65,6 +82,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Architecture Decision Records',
       items: [
+        {
+          type: 'link',
+          label: 'ADR index',
+          href: '/docs/adr',
+        },
         {
           type: 'link',
           label: '0001 Bounded context',

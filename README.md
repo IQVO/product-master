@@ -18,6 +18,27 @@ weight). Hexagonal Go, Postgres, REST, Kafka (CloudEvents 1.0).
   `warehouse.product-master.events`)
 - Agent guides: `.claude/rules/` ; harness: [`HARNESS.md`](HARNESS.md)
 
+## Documentation
+
+Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
+
+| Page | What it covers |
+|---|---|
+| [Introduction](docs/docs/intro.md) | What the context owns, tier, classification, where to go next |
+| [Quickstart](docs/docs/overview/quickstart.md) | Prerequisites, `make` targets, running locally, seeding, first calls |
+| [Architecture and runtime](docs/docs/overview/runtime.md) | Hexagonal layers, the four binaries and ports, container diagram, data stores |
+| [Configuration](docs/docs/operations/configuration.md) | Every environment variable of every binary |
+| [Runbook](docs/docs/operations/runbook.md) | Deployment, migrations, Kafka topics and groups, outbox relay, DLQ, scaling, procedures |
+| [Observability](docs/docs/operations/observability.md) | Metrics, traces, logs, health endpoints, suggested alerts |
+| [Troubleshooting](docs/docs/operations/troubleshooting.md) | Symptom, cause, check, fix |
+| [Testing](docs/docs/development/testing.md) | Test pyramid, `make` targets, CI jobs |
+| [Integration: downstream](docs/docs/ecosystem/downstream-consumers.md), [upstream](docs/docs/ecosystem/upstream-contracts.md) | Every consumer and producer edge |
+| [Use cases](docs/docs/ddd/use-cases.md) | Triggers, inputs, invariants, events |
+| [Subdomain classification](docs/docs/ddd/subdomain-classification.md) | Supporting, `wms` tier, and the neighbours |
+| [MCP tools](docs/docs/mcp/tools.md) | The four read-only tools of `cmd/mcp` |
+| [ADR index](docs/adr/index.md) | Every ADR with its status |
+| [DDD artifacts](docs/docs/ddd/ddd-artifacts.md) | The ddd-crew pack |
+
 ## Endpoints (summary)
 
 | Method | Path | Use case |
