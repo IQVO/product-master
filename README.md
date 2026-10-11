@@ -31,7 +31,7 @@ Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
 | [Runbook](docs/docs/operations/runbook.md) | Deployment, migrations, Kafka topics and groups, outbox relay, DLQ, scaling, procedures |
 | [Observability](docs/docs/operations/observability.md) | Metrics, traces, logs, health endpoints, suggested alerts |
 | [Troubleshooting](docs/docs/operations/troubleshooting.md) | Symptom, cause, check, fix |
-| [Testing](docs/docs/development/testing.md) | Test pyramid, `make` targets, CI jobs |
+| [Testing](docs/docs/development/testing.md) | Test pyramid, the 13 testcontainers integration suites, `make` targets, CI jobs |
 | [Integration: downstream](docs/docs/ecosystem/downstream-consumers.md), [upstream](docs/docs/ecosystem/upstream-contracts.md) | Every consumer and producer edge |
 | [Use cases](docs/docs/ddd/use-cases.md) | Triggers, inputs, invariants, events |
 | [Subdomain classification](docs/docs/ddd/subdomain-classification.md) | Supporting, `wms` tier, and the neighbours |
@@ -87,7 +87,7 @@ in Kafka mode); see `docs/docs/ecosystem/downstream-consumers.md`.
 go run ./cmd/api          # :8080, in-memory without DATABASE_URL, events logged without a broker
 make check-fast           # quick gate
 make check-all            # full local gate
-make integration          # testcontainers Postgres + Kafka (Docker required)
+make integration          # testcontainers Postgres + Kafka (Docker only; also the CI `integration` job)
 go run ./cmd/mcp          # :8090, read-only MCP server (Streamable HTTP) over the same database
 go run ./cmd/product-projector  # :8091 admin; needs ANALYTICS_DATABASE_URL + KAFKA_BROKERS (ADR 0006)
 go run ./cmd/product-reports    # :8092, read-only reports; needs ANALYTICS_DATABASE_URL
