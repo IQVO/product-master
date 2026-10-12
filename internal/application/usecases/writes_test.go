@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/claudioed/product-master/internal/application/ports"
 	"github.com/claudioed/product-master/internal/application/repository"
 	"github.com/claudioed/product-master/internal/application/usecases"
 	"github.com/claudioed/product-master/internal/domain/product"
@@ -102,6 +103,52 @@ func TestRegisterProduct_Errors(t *testing.T) {
 				t.Fatalf("outbox has %d messages after an error", len(h.outbox.msgs))
 			}
 		})
+	}
+}
+
+// TestRegisterProduct_RecordsTier2MetricsByOutcome covers the ADR-0013
+// business metric: created on first registration, description_changed when
+// an existing SKU's description is replaced, unchanged when the submitted
+// description is identical (no event raised, Version untouched). A nil
+// Metrics (the zero value) must never be called and never panic.
+func TestRegisterProduct_RecordsTier2MetricsByOutcome(t *testing.T) {
+	h := newHarness()
+	metrics := &fakeMetrics{}
+	uc := &usecases.RegisterProduct{Writer: h.writer, Metrics: metrics}
+	ctx := context.Background()
+
+	if _, err := uc.Handle(ctx, usecases.RegisterProductCommand{SKU: "SKU-1", Description: "Battery"}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := uc.Handle(ctx, usecases.RegisterProductCommand{SKU: "SKU-1", Description: "Battery 12V"}); err != nil {
+		t.Fatalf("change: %v", err)
+	}
+	if _, err := uc.Handle(ctx, usecases.RegisterProductCommand{SKU: "SKU-1", Description: "Battery 12V"}); err != nil {
+		t.Fatalf("unchanged: %v", err)
+	}
+	want := []string{
+		ports.ProductRegistrationOutcomeCreated,
+		ports.ProductRegistrationOutcomeDescriptionChanged,
+		ports.ProductRegistrationOutcomeUnchanged,
+	}
+	if !reflect.DeepEqual(metrics.outcomes, want) {
+		t.Fatalf("outcomes = %v, want %v", metrics.outcomes, want)
+	}
+
+	// A nil Metrics (no telemetry wired) must not panic.
+	h2 := newHarness()
+	if _, err := (&usecases.RegisterProduct{Writer: h2.writer}).Handle(ctx, usecases.RegisterProductCommand{SKU: "SKU-2"}); err != nil {
+		t.Fatalf("register with nil Metrics: %v", err)
+	}
+
+	// An error path (invalid SKU) never reports an outcome.
+	h3 := newHarness()
+	m3 := &fakeMetrics{}
+	if _, err := (&usecases.RegisterProduct{Writer: h3.writer, Metrics: m3}).Handle(ctx, usecases.RegisterProductCommand{SKU: "bad sku"}); err == nil {
+		t.Fatal("expected an error for an invalid SKU")
+	}
+	if len(m3.outcomes) != 0 {
+		t.Fatalf("outcomes on error = %v, want none", m3.outcomes)
 	}
 }
 
