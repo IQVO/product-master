@@ -64,7 +64,7 @@ micro-frontend remote.
 ```bash
 make check-fast   # fmt-check + vet + arch-test + tests of changed packages: run before saying "done"
 make check        # fmt-check vet build lint test
-make check-all    # check + coverage (90% gate on domain+application) + arch-test + bdd
+make check-all    # check + coverage (90% gate on domain+application+analytics) + arch-test + bdd
 make integration  # real Postgres/Kafka via testcontainers (needs Docker)
 make mutation     # gremlins on internal/domain/product (CI job mutation-fast, blocking)
 make guide-lint   # these guides: skills load, references resolve, context budget
@@ -84,7 +84,10 @@ and `cmd/product-reports` (`:8092`) need `ANALYTICS_DATABASE_URL` (ADR 0006).
   `.claude/rules/frontend.md`: the `web/` remote.
 - `.claude/rules/fleet/*.md`: fleet-wide rules copied from the harness
   template; never edit them here.
-- `docs/adr/`: decisions. `apis/openapi.yaml`, `apis/asyncapi.yaml`: contracts.
+- `docs/adr/`: decisions (index: `docs/adr/index.md`). `apis/openapi.yaml`,
+  `apis/asyncapi.yaml`: contracts. Operating docs: `docs/docs/operations/`
+  (configuration, runbook, observability, troubleshooting),
+  `docs/docs/development/testing.md`, `docs/docs/overview/quickstart.md`.
   `HARNESS.md`: what each sensor runs and why.
 
 Scaffolded from `warehouse-harness-template`; harness-template v3 is in effect
