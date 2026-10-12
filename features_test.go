@@ -57,12 +57,16 @@ type world struct {
 	outbox   *memory.OutboxRepo
 	importer *inboundkafka.LegacyImporter
 
-	status int
-	body   []byte
+	readiness *inboundhttp.Readiness
+
+	status      int
+	body        []byte
+	contentType string
 
 	listQuery  string
 	legacySeq  int
 	lastLegacy []byte
+	legacyLog  [][]byte
 }
 
 func (w *world) start() {
@@ -71,7 +75,9 @@ func (w *world) start() {
 		Products: products, Outbox: ob, Encoder: outboundkafka.NewEncoder(),
 		UoW: memory.NewUnitOfWork(products, ob, processed), Clock: fixedClock{},
 	}
+	w.readiness = &inboundhttp.Readiness{}
 	s := &inboundhttp.Server{
+		Readiness:         w.readiness,
 		RegisterProduct:   &usecases.RegisterProduct{Writer: writer},
 		ClassifyProduct:   &usecases.ClassifyProduct{Writer: writer},
 		DeclareDimensions: &usecases.DeclareDimensions{Writer: writer},
@@ -86,6 +92,7 @@ func (w *world) start() {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	w.status, w.body, w.listQuery, w.legacySeq, w.lastLegacy = 0, nil, "", 0, nil
+	w.legacyLog = nil
 }
 
 func (w *world) stop() {
@@ -112,6 +119,7 @@ func (w *world) call(method, path, body string) error {
 	}
 	defer resp.Body.Close()
 	w.status = resp.StatusCode
+	w.contentType = resp.Header.Get("Content-Type")
 	w.body, err = io.ReadAll(resp.Body)
 	return err
 }
@@ -340,6 +348,7 @@ func (w *world) publishLegacy(sku, tags string, dot int) error {
 		return err
 	}
 	w.lastLegacy = value
+	w.legacyLog = append(w.legacyLog, value)
 	return w.importer.HandleMessage(context.Background(), value)
 }
 
@@ -390,4 +399,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^inventory-storage publishes a legacy classification of "([^"]*)" with tags "([^"]*)"$`, w.legacyClassification)
 	sc.Step(`^inventory-storage publishes a legacy classification of "([^"]*)" with tags "([^"]*)" and DOT hazard class (\d+)$`, w.legacyClassificationWithDOT)
 	sc.Step(`^inventory-storage redelivers the same legacy event$`, w.redeliverLegacy)
+
+	registerWave2Steps(sc, w)
 }
