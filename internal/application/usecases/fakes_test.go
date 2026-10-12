@@ -156,6 +156,15 @@ type fixedClock struct{ t time.Time }
 
 func (c fixedClock) Now() time.Time { return c.t }
 
+// fakeMetrics records every outcome reported to ports.ProductMetrics.
+type fakeMetrics struct {
+	outcomes []string
+}
+
+func (m *fakeMetrics) ProductRegistration(_ context.Context, outcome string) {
+	m.outcomes = append(m.outcomes, outcome)
+}
+
 type fakeProcessed struct {
 	seen map[string]bool
 	err  error

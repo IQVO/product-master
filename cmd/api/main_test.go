@@ -155,7 +155,7 @@ func TestBuildAdapters_InMemoryWiresEveryPort(t *testing.T) {
 	if ad.products == nil || ad.outbox == nil || ad.outboxStore == nil || ad.processed == nil || ad.uow == nil {
 		t.Fatalf("ports not wired: %+v", ad)
 	}
-	s := buildServer(ad, nil, nil)
+	s := buildServer(ad, nil, nil, nil)
 	if s.RegisterProduct == nil || s.ListProducts == nil || s.GetProduct == nil || s.RecordMeasurement == nil {
 		t.Fatal("use cases not wired")
 	}
