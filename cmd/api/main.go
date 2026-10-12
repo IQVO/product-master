@@ -83,10 +83,16 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("metrics handler: %w", err)
 	}
+	// productMetrics is the Tier 2 business counter (ADR-0013). It only
+	// fails on an invalid instrument name, a programming error.
+	productMetrics, err := telemetry.NewProductMetrics()
+	if err != nil {
+		return fmt.Errorf("product metrics: %w", err)
+	}
 	readiness := &inboundhttp.Readiness{}
 	httpServer := &http.Server{
 		Addr:              getenv("HTTP_ADDR", ":8080"),
-		Handler:           inboundhttp.NewRouter(buildServer(ad, readiness, metrics)),
+		Handler:           inboundhttp.NewRouter(buildServer(ad, readiness, metrics, productMetrics)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -118,10 +124,10 @@ func (a adapters) writer() usecases.Writer {
 	return usecases.Writer{Products: a.products, Outbox: a.outbox, Encoder: outboundkafka.NewFanoutEncoder(), UoW: a.uow, Clock: clock.System{}}
 }
 
-func buildServer(ad adapters, readiness *inboundhttp.Readiness, metrics http.Handler) *inboundhttp.Server {
+func buildServer(ad adapters, readiness *inboundhttp.Readiness, metrics http.Handler, productMetrics ports.ProductMetrics) *inboundhttp.Server {
 	w := ad.writer()
 	return &inboundhttp.Server{
-		RegisterProduct:   &usecases.RegisterProduct{Writer: w},
+		RegisterProduct:   &usecases.RegisterProduct{Writer: w, Metrics: productMetrics},
 		ClassifyProduct:   &usecases.ClassifyProduct{Writer: w},
 		DeclareDimensions: &usecases.DeclareDimensions{Writer: w},
 		RecordMeasurement: &usecases.RecordMeasurement{Writer: w},
