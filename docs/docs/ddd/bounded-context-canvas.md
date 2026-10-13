@@ -15,6 +15,83 @@ Every message row below maps to a route in `NewRouter`
 in `internal/adapters/inbound/kafka/legacy_importer.go` /
 `internal/adapters/outbound/kafka/encoder.go`.
 
+## Canvas at a glance
+
+One picture of the sections below, laid out like the ddd-crew canvas:
+inbound collaborators on the left, this context in the middle (purpose,
+domain roles and the business decisions it enforces), outbound
+collaborators on the right. Arrows follow the message type: **solid blue**
+commands (`cmd`), **dotted green** queries (`qry`), **thick orange** events
+(`evt`); each arrow names its channel and the messages it carries. Box shapes
+mark the collaborator kind: rounded = people, UI or any client; blue =
+sibling bounded context; double border = external system or platform;
+grey = this context's own projector, reports or dead-letter path; dashed =
+published today with no consumer. Channel names on the arrows are
+abbreviated (REST, MCP, Kafka, HTTP, port); the Inbound and Outbound
+Communication tables carry the exact route, tool, topic and CloudEvents
+type for every message.
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 18, "rankSpacing": 36, "padding": 8}}}%%
+flowchart LR
+    classDef bc fill:#fff3bf,stroke:#e67700,stroke-width:1.5px,color:#000
+    classDef card fill:#fff9db,stroke:#f08c00,color:#000,text-align:left
+    classDef ctx fill:#e7f5ff,stroke:#1c7ed6,color:#000
+    classDef actor fill:#fff4e6,stroke:#e8590c,color:#000
+    classDef ext fill:#ffe3e3,stroke:#c92a2a,color:#000
+    classDef self fill:#f1f3f5,stroke:#868e96,color:#000
+    classDef none fill:#f8f9fa,stroke:#adb5bd,stroke-dasharray:5 5,color:#495057
+    subgraph IN["Inbound - who commands, queries or feeds it"]
+        direction TB
+        in0(["Master-data steward, operator, dimensioning device, console (productmaster_mfe)"]):::actor
+        in1["warehouse-ops-agent"]:::ctx
+        in2["inventory-storage (legacy backfill)"]:::ctx
+    end
+    subgraph BC["product-master - Supporting subdomain - WMS tier"]
+        direction TB
+        purpose["<b>Purpose</b><br/>The single source of truth for<br/>SKU-level master data: what a SKU is<br/>for handling (classification) and<br/>physically (declared and measured<br/>dimensions and weight). Publish<br/>every accepted change so consumers<br/>keep their own copy; no where or<br/>how-many."]:::card
+        roles["<b>Domain roles</b><br/>- Specification context (primary)<br/>- Gateway / Open Host Service<br/>- Own analytics data product"]:::card
+        rules["<b>Business decisions it enforces</b><br/>- A SKU is registered explicitly<br/>before it can be classified or<br/>dimensioned<br/>- The classification taxonomy is<br/>closed and wire-compatible with<br/>inventory-storage<br/>- Dimensions are whole millimetres and<br/>grams, bounded, never re-oriented<br/>- Effective = measured, else declared;<br/>latest measuredAt wins<br/>- A discrepancy above 10 % is flagged,<br/>never rejected<br/>- A change that alters nothing raises<br/>no event and bumps no version"]:::card
+        purpose ~~~ roles ~~~ rules
+    end
+    subgraph OUT["Outbound - whom it calls or notifies"]
+        direction TB
+        out0["inventory-storage, order-management, wes-work-planning, fulfillment-execution, slotting-optimization"]:::ctx
+        out1["slotting-optimization"]:::ctx
+        out2["inbound-receiving (known SKUs copy)"]:::ctx
+        out3["no consumer today"]:::none
+        out4["own product-projector"]:::self
+    end
+    in0 -->|"cmd - REST<br/>Register product, Classify<br/>product, Declare dimensions,<br/>Record measurement"| BC
+    in0 -.->|"qry - REST<br/>Get product, classification,<br/>physical profile, List products"| BC
+    in0 -.->|"qry - REST (reports)<br/>Master data quality, freshness"| BC
+    in1 -.->|"qry - MCP<br/>get_product, list_products,<br/>get_product_classification,<br/>get_physical_profile"| BC
+    in2 ==>|"evt - Kafka<br/>warehouse.inventory.events<br/>legacy ProductClassified"| BC
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductClassified"| out0
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductDimensionsDeclared,<br/>ProductMeasured"| out1
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductRegistered"| out2
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductDescriptionChanged"| out3
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.analytics<br/>analytics copy"| out4
+    linkStyle 0 stroke:#1971c2,stroke-width:1.5px
+    linkStyle 1 stroke:#2f9e44,stroke-width:1.5px
+    linkStyle 2 stroke:#2f9e44,stroke-width:1.5px
+    linkStyle 3 stroke:#2f9e44,stroke-width:1.5px
+    linkStyle 4 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 5 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 6 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 7 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 8 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 9 stroke:#e8590c,stroke-width:2.5px
+    class BC bc
+```
+
+Source: the Inbound Communication and Outbound Communication tables of this
+page, which map to `internal/adapters/inbound/{http,kafka,mcp}` and `internal/adapters/outbound/`. The diagram omits assumptions, verification metrics, open
+questions and the ubiquitous language (sections below), the relationship
+pattern per message (OHS, ACL, Conformist, Customer/Supplier - see the
+tables) and anything the tables mark as deprecated or platform-only
+(health probes).
+
 ## Name
 
 **Product Master** (`product-master`, Go module
@@ -73,11 +150,11 @@ outbox and the relay in `cmd/api`.
 
 | Collaborator | Message | Type | Channel | Relationship |
 | --- | --- | --- | --- | --- |
-| `inventory-storage`, `order-management`, `wes-work-planning`, `fulfillment-execution` | `ProductClassified` | Event | Kafka `warehouse.product-master.events`, `com.warehouse.wms.product-master.product.ProductClassified` | This context upstream, OHS + Published Language; each consumer keeps a version-guarded local copy |
-| none today | `ProductRegistered` | Event | same topic, `com.warehouse.wms.product-master.product.ProductRegistered` | OHS + PL |
+| `inventory-storage`, `order-management`, `wes-work-planning`, `fulfillment-execution`, `slotting-optimization` | `ProductClassified` | Event | Kafka `warehouse.product-master.events`, `com.warehouse.wms.product-master.product.ProductClassified` | This context upstream, OHS + Published Language; each consumer keeps a version-guarded local copy |
+| `inbound-receiving` (its `known_skus` local copy) | `ProductRegistered` | Event | same topic, `com.warehouse.wms.product-master.product.ProductRegistered` | OHS + PL |
 | none today | `ProductDescriptionChanged` | Event | same topic, `...product.ProductDescriptionChanged` | OHS + PL |
-| none today (ADR 0002 names later uses) | `ProductDimensionsDeclared` | Event | same topic, `...product.ProductDimensionsDeclared` | OHS + PL |
-| none today (ADR 0002 names later uses) | `ProductMeasured` | Event | same topic, `...product.ProductMeasured` | OHS + PL |
+| `slotting-optimization` (its product copy) | `ProductDimensionsDeclared` | Event | same topic, `...product.ProductDimensionsDeclared` | OHS + PL |
+| `slotting-optimization` (its product copy) | `ProductMeasured` | Event | same topic, `...product.ProductMeasured` | OHS + PL |
 
 ## Ubiquitous Language
 

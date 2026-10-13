@@ -247,7 +247,7 @@ sequenceDiagram
       end
       alt send failed
         DB->>DB: attempts plus 1, last_error, COMMIT what was already sent, stop the pass
-        Note over Rel: error logged, retried after the interval with the same CloudEvents id; at the attempt cap logged once at ERROR and excluded (ADR 0007)
+        Note over Rel: error logged, retried after the interval with the same CloudEvents id, at the attempt cap logged once at ERROR and excluded (ADR 0007)
       else sent
         DB->>DB: published_at now, attempts plus 1
       end
