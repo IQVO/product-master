@@ -21,6 +21,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0005](./0005-mcp-server-adoption.md) | MCP server adoption (read-only, unauthenticated, additive) | Accepted (2026-10-07) |
 | [0006](./0006-analytics-read-side.md) | Analytics read side: an analytics stream, a projector and a master data quality report over a separate analytical database | Accepted (2026-10-07); additive |
 | [0007](./0007-outbox-relay-attempt-cap.md) | Outbox relay attempt cap (`OUTBOX_MAX_ATTEMPTS`) | Accepted (2026-10-13) |
+| [0008](./0008-projector-telemetry-and-environment.md) | The analytics projector sets up telemetry; every backend Deployment sets ENVIRONMENT | Accepted (2026-10-13); additive |
 
 ## Where each decision lives in the code
 
@@ -33,5 +34,6 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | 0005 | `cmd/mcp`, `internal/adapters/inbound/mcp` |
 | 0006 | `cmd/product-projector`, `cmd/product-reports`, `internal/analytics/report`, `internal/adapters/outbound/analyticsstore`, `analytics/migrations` |
 | 0007 | `internal/adapters/outbound/outbox/relay.go` (`WithMaxAttempts`), `internal/adapters/outbound/postgres/outbox_repository.go` (`claim`), `cmd/api/main.go` (`outboxMaxAttempts`) |
+| 0008 | `cmd/product-projector/main.go` (`setupTelemetry`), `charts/product-master/templates/{projector,reports}-deployment.yaml` |
 
 Back to the [documentation](/docs/intro).

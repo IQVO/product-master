@@ -21,7 +21,7 @@ instruments in this repo today.
 | `cmd/api` | `product-master` | yes | yes (Go and process collectors) | JSON on stdout |
 | `cmd/mcp` | `product-master-mcp` | yes | no | JSON on stdout |
 | `cmd/product-reports` | `product-master-reports` | yes | no | JSON on stdout |
-| `cmd/product-projector` | none | **no** (it never calls `telemetry.Setup`) | no | JSON on stdout |
+| `cmd/product-projector` | `product-master-projector` | metrics (Go runtime) and the resource identity; it opens no spans ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)) | no | JSON on stdout |
 
 ### Export
 
@@ -44,14 +44,14 @@ All of them come from libraries; the repo defines none of its own.
 | Instrument | Type | Unit | Attributes | Emitted by | Source |
 | --- | --- | --- | --- | --- | --- |
 | `http.server.request.duration` | Float64 histogram (buckets 5 ms to 10 s) | `s` | `http.method`, `http.scheme`, `http.route` (the chi pattern, e.g. `/products/{sku}`); scope attribute `service.name` | api, mcp, reports | otelchi `metric.NewServerRequestDuration`, wired in `internal/adapters/inbound/http/server.go`, `reports_handler.go`, `cmd/mcp/router.go` |
-| `go.memory.used` | Int64 observable up-down counter | `By` | `go.memory.type` (`stack`, `other`) | api, mcp, reports | contrib `runtime.Start` in `telemetry.Setup` |
-| `go.memory.limit` | Int64 observable up-down counter | `By` | | api, mcp, reports | same (only reported when a memory limit is set) |
-| `go.memory.allocated` | Int64 observable counter | `By` | | api, mcp, reports | same |
-| `go.memory.allocations` | Int64 observable counter | `{allocation}` | | api, mcp, reports | same |
-| `go.memory.gc.goal` | Int64 observable up-down counter | `By` | | api, mcp, reports | same |
-| `go.goroutine.count` | Int64 observable up-down counter | `{goroutine}` | | api, mcp, reports | same |
-| `go.processor.limit` | Int64 observable up-down counter | `{thread}` | | api, mcp, reports | same |
-| `go.config.gogc` | Int64 observable up-down counter | `%` | | api, mcp, reports | same |
+| `go.memory.used` | Int64 observable up-down counter | `By` | `go.memory.type` (`stack`, `other`) | api, mcp, reports, projector | contrib `runtime.Start` in `telemetry.Setup` |
+| `go.memory.limit` | Int64 observable up-down counter | `By` | | api, mcp, reports, projector | same (only reported when a memory limit is set) |
+| `go.memory.allocated` | Int64 observable counter | `By` | | api, mcp, reports, projector | same |
+| `go.memory.allocations` | Int64 observable counter | `{allocation}` | | api, mcp, reports, projector | same |
+| `go.memory.gc.goal` | Int64 observable up-down counter | `By` | | api, mcp, reports, projector | same |
+| `go.goroutine.count` | Int64 observable up-down counter | `{goroutine}` | | api, mcp, reports, projector | same |
+| `go.processor.limit` | Int64 observable up-down counter | `{thread}` | | api, mcp, reports, projector | same |
+| `go.config.gogc` | Int64 observable up-down counter | `%` | | api, mcp, reports, projector | same |
 
 The otelchi request-duration histogram carries **no status-code attribute**, so
 error rates have to come from traces, logs or the Kong gateway metrics, not from

@@ -61,10 +61,11 @@ outbox relay and never dials a broker.
 | `ANALYTICS_CONSUMER_GROUP` | `product-master-analytics` | no | The projector's fixed consumer group on `warehouse.product-master.analytics`. A new group id starts from the earliest offset and rebuilds the model from history. | `cmd/product-projector/main.go` (`defaultConsumerGroup`) |
 | `ADMIN_ADDR` | `:8091` | no | Listen address of the admin server (`/healthz`, `/readyz` only). | `cmd/product-projector/main.go` |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`/`warning` or `error`. | `cmd/product-projector/main.go` (`newLogger`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | OTLP/gRPC collector. Service name `product-master-projector` ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)). Export never blocks boot. | `cmd/product-projector/main.go` (`setupTelemetry`) |
+| `SERVICE_VERSION` | `dev` | no | `service.version` resource attribute. | `cmd/product-projector/main.go` (`setupTelemetry`) |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
-The projector does not set up OpenTelemetry, so it reads neither
-`OTEL_EXPORTER_OTLP_ENDPOINT`, `SERVICE_VERSION` nor `ENVIRONMENT`, and it never
-opens the OLTP database (`DATABASE_URL` is not read).
+The projector never opens the OLTP database (`DATABASE_URL` is not read).
 
 ## `cmd/product-reports` (analytics reader)
 
@@ -75,7 +76,7 @@ opens the OLTP database (`DATABASE_URL` is not read).
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | OTLP/gRPC collector. Service name `product-master-reports`. | `cmd/product-reports/main.go` |
 | `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`/`warning` or `error`. | `cmd/product-reports/main.go` (`newLogger`) |
 | `SERVICE_VERSION` | `dev` | no | `service.version` resource attribute. | `cmd/product-reports/main.go` |
-| `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute (the chart does not set it for this Deployment, so it reports `local`). | `internal/adapters/outbound/telemetry/telemetry.go` |
+| `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute. The chart sets it from `environment` ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)). | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 ## Fixed values (not configurable)
 
@@ -107,9 +108,9 @@ is:
 | `config.legacyImportConsumerGroup` | `LEGACY_IMPORT_CONSUMER_GROUP` (not rendered when empty) | api |
 | `config.shutdownDrainDelay` | `SHUTDOWN_DRAIN_DELAY` (not rendered when empty) | api |
 | `config.corsAllowedOrigins` | `CORS_ALLOWED_ORIGINS` (not rendered when empty) | api |
-| `environment` | `ENVIRONMENT` | api, mcp |
-| `image.tag` (or chart `appVersion`) | `SERVICE_VERSION` | api, mcp, reports |
-| `otel.enabled`, `otel.endpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | api, mcp, reports |
+| `environment` | `ENVIRONMENT` | api, mcp, projector, reports |
+| `image.tag` (or chart `appVersion`) | `SERVICE_VERSION` | api, mcp, projector, reports |
+| `otel.enabled`, `otel.endpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | api, mcp, projector, reports |
 | `database.existingSecret` / `database.url`, key `database.existingSecretKey` | `DATABASE_URL` | api, mcp |
 | key `database.migrationsExistingSecretKey` (optional secret key) | `MIGRATIONS_DATABASE_URL` | api, mcp |
 | `kafka.enabled`, `kafka.brokers` | `KAFKA_BROKERS` | api (only when enabled), projector |
@@ -121,3 +122,14 @@ is:
 
 See the [runbook](/docs/operations/runbook) for how these come together in a
 deployment.
+
+The api Deployment also mounts the chart ConfigMap (`templates/configmap.yaml`:
+`HTTP_ADDR`, `LOG_LEVEL`, `EVENT_PUBLISHER`, `ENVIRONMENT`,
+`OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS`, `LEGACY_IMPORT_CONSUMER_GROUP`,
+`SHUTDOWN_DRAIN_DELAY`, `CORS_ALLOWED_ORIGINS`, `OTEL_EXPORTER_OTLP_ENDPOINT`,
+`KAFKA_BROKERS`, each only when set) with `envFrom` (gap fix D14). Every key
+in it is read by `cmd/api`. The explicit `env` entries carry the same values
+and win for the same key; the `checksum/config` annotation rolls the pods
+when the ConfigMap changes. The mcp, projector and reports Deployments do not
+mount it. `charts/product-master/tests/render_test.sh` (CI job `chart-tests`)
+asserts the mount.

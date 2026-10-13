@@ -23,6 +23,7 @@ and `internal/architecture/`.
 | Contract | Spectral lint of both specs; the event catalogue fitness test; MCP tool registry golden file | `apis/`, `internal/architecture/catalogue_fitness_test.go`, `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json` | CI `api-lint`; `make test` | Spectral for the lint |
 | Frontend | vitest and Testing Library for the `productmaster_mfe` remote | 7 test files under `web/src` | `cd web && npm test` | Node 22 and a built sibling `warehouse-ui-kit` |
 | Chart | Each Service selects exactly one Deployment | `charts/product-master/tests/test_service_selectors.py` | `python3 charts/product-master/tests/test_service_selectors.py` | Helm, PyYAML |
+| Chart render | The api Deployment mounts the chart ConfigMap via `envFrom` (gap fix D14); `OUTBOX_MAX_ATTEMPTS` defaults to 20 and renders `0` ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); mcp, projector and reports do not mount the ConfigMap; every backend Deployment sets `ENVIRONMENT`, `SERVICE_VERSION` and the OTLP endpoint ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)) | `charts/product-master/tests/render_test.sh` | `bash charts/product-master/tests/render_test.sh` | Helm |
 
 There is **no** Schemathesis (property-based HTTP contract) job and **no**
 evals job in this repo's CI. `EVALS.md` and `tools/harness_eval*.py` document
@@ -160,6 +161,7 @@ before each push.
 | `vuln` | govulncheck | every push and PR |
 | `docs-api-drift` | regenerate `docs/docs/api-reference/rest` from the OpenAPI spec and fail on any diff | every push and PR |
 | `helm-lint` | `ct lint` on the chart and the Service selector test | pull requests |
+| `chart-tests` | `charts/product-master/tests/render_test.sh` and the Service selector test | every push and PR |
 | `web` | oxlint, `tsc -b`, vitest, production build of `web/` (with `warehouse-ui-kit` built first) | every push and PR |
 | `arch-test` | `go test ./internal/architecture/... -v` | every push and PR |
 | `trivy-scan` | build the image and scan it (SARIF upload; blocks on fixable CRITICAL/HIGH) | pull requests |
