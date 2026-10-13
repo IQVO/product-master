@@ -237,7 +237,7 @@ sequenceDiagram
   participant K as Kafka warehouse.product-master.events
   loop every OUTBOX_RELAY_INTERVAL, default 1s, or at once after a full batch
     Rel->>DB: Drain(limit 100)
-    DB->>DB: BEGIN, SELECT unpublished ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED
+    DB->>DB: BEGIN, SELECT unpublished AND attempts below OUTBOX_MAX_ATTEMPTS ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED
     loop each row in id order
       DB->>S: Send(message)
       alt EVENT_PUBLISHER kafka
@@ -247,7 +247,7 @@ sequenceDiagram
       end
       alt send failed
         DB->>DB: attempts plus 1, last_error, COMMIT what was already sent, stop the pass
-        Note over Rel: error logged, retried after the interval with the same CloudEvents id
+        Note over Rel: error logged, retried after the interval with the same CloudEvents id; at the attempt cap logged once at ERROR and excluded (ADR 0007)
       else sent
         DB->>DB: published_at now, attempts plus 1
       end

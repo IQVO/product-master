@@ -99,8 +99,10 @@ In the kind cluster Alloy ships them to Loki with the label
 | `DATABASE_URL not configured; using in-memory adapters` | INFO | | api | No Postgres: data is lost on restart. |
 | `postgres adapters configured` | INFO | | api | Migrations and ping succeeded. |
 | `retrying` / `succeeded after retry` | WARN / INFO | `op`, `attempt`, `in`, `err` | all four | Boot retry of the migrations or the first database ping (`internal/bootretry`). |
-| `outbox relay running` | INFO | `publisher`, `interval`, `topics` | api | Relay started. |
-| `outbox relay pass failed` | ERROR | `error` | api | A send failed; the row keeps `last_error` and is retried. |
+| `outbox relay running` | INFO | `publisher`, `interval`, `max_attempts`, `topics` | api | Relay started. |
+| `outbox relay pass failed` | ERROR | `error` (contains `outbox row <id> (<type>)`) | api | A send failed; the row keeps `last_error` and is retried until it reaches the attempt cap. |
+| `outbox relay: row reached the attempt cap and is excluded from future claims; re-arm it with attempts = 0 after fixing the cause` | ERROR (once per row) | `outbox_id`, `topic`, `event_type`, `key`, `attempts`, `max_attempts`, `error` | api | The row failed `OUTBOX_MAX_ATTEMPTS` times and is no longer claimed ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); re-arm it per the runbook. |
+| `invalid OUTBOX_MAX_ATTEMPTS; using the default` | WARN | `value`, `default` | api | The env value was negative or not an integer; the cap is 20. |
 | `event published (log sink)` | INFO | `topic`, `type`, `subject`, `id` | api | `EVENT_PUBLISHER=log`: the event was **not** sent to Kafka. |
 | `legacy classification importer running` | INFO | `topic`, `group_id`, `brokers` | api | Importer started. |
 | `legacy classification processed` | INFO | `event_id`, `sku`, `outcome` (`applied`, `unchanged`, `duplicate`) | api | One legacy message handled. |
@@ -142,7 +144,8 @@ None of these exist yet; they are derived from the failure modes in the code.
 | Alert | Signal | Why |
 | --- | --- | --- |
 | Outbox backlog growing | `SELECT count(*) FROM outbox_events WHERE published_at IS NULL` above a few hundred, or `min(created_at)` older than a few minutes | Kafka unreachable or a row failing forever; downstream copies go stale. |
-| Outbox row stuck | any unpublished row with `attempts` above 10 | The relay stops at the first failing row, so one row blocks all later events. |
+| Outbox row stuck | any unpublished row with `attempts` above 10 | The relay stops at the first failing row, so one row blocks all later events until it reaches the attempt cap. |
+| Outbox row excluded | any `outbox relay: row reached the attempt cap ...` ERROR line, or `SELECT count(*) FROM outbox_events WHERE published_at IS NULL AND attempts >= 20` above 0 | The row is never delivered until an operator re-arms it (runbook). |
 | Relay in log mode in a cluster | log line `event published (log sink)` where Kafka is expected | `EVENT_PUBLISHER` not set to `kafka`: nothing reaches consumers. |
 | Analytics stale | `GET /reports/freshness` `lag_seconds` above your tolerance while writes happen | Projector down, blocked on a transient error, or relay not publishing. |
 | DLQ not empty | messages on `warehouse.product-master.analytics.dlq`, or the log line `analytics: dead-lettering ...` | A payload the projector can never apply. |

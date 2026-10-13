@@ -117,7 +117,10 @@ transaction (`internal/adapters/outbound/postgres/unit_of_work.go`); without
   immediately by another pass. `OutboxRepo.Drain` claims rows with
   `FOR UPDATE SKIP LOCKED`, sends them one at a time in id order, marks each
   published, and stops at the first failure (recording `attempts` and
-  `last_error`) so a later event of a SKU never overtakes an earlier one.
+  `last_error`) so a later event of a SKU never overtakes an earlier one that
+  is still being retried. A row that has failed `OUTBOX_MAX_ATTEMPTS` times
+  (default 20, `0` = unlimited) is no longer claimed and is logged once at
+  ERROR ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)).
 - `EVENT_PUBLISHER=kafka` uses `RelaySink`: a topic-less kafka-go writer with
   `RequireAll` acks, a 10 ms batch timeout, the `Hash` balancer on the key (the
   SKU) and auto topic creation. The default `log` sink only logs each message.

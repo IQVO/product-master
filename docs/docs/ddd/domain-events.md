@@ -47,7 +47,8 @@ payload, on purpose, so consumers migrating from it keep their field mapping
 
 **Ordering and replay.** Events of one SKU share a partition, so they arrive
 in order; the outbox relay stops a pass at the first failure so a later event
-never overtakes an earlier one. Every payload carries the `version` after the
+never overtakes an earlier one that is still being retried (a row excluded by
+the relay attempt cap, ADR 0007, is overtaken). Every payload carries the `version` after the
 change: a consumer applies a message only when its `version` is greater than
 the stored one, which makes redelivery and replay harmless. A change that
 alters nothing raises no event.

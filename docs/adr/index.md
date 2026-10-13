@@ -17,9 +17,10 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0001](./0001-product-master-bounded-context.md) | product-master as the owner of SKU-level product master data | Accepted (2026-10-06) |
 | [0002](./0002-physical-profile-declared-vs-measured.md) | Physical profile, declared versus measured | Accepted (2026-10-06) |
 | [0003](./0003-migration-from-inventory-storage.md) | Migrating classification ownership from inventory-storage | Accepted (2026-10-06); companion decisions: inventory-storage ADR 0034 (hand-over) and one ADR in each of order-management, wes-work-planning and fulfillment-execution (local copy instead of live lookup) |
-| [0004](./0004-cloudevents-envelope-and-type-catalogue.md) | CloudEvents envelope and type catalogue | Accepted (2026-10-06) |
+| [0004](./0004-cloudevents-envelope-and-type-catalogue.md) | CloudEvents envelope and type catalogue | Accepted (2026-10-06); per-key ordering amended by 0007 |
 | [0005](./0005-mcp-server-adoption.md) | MCP server adoption (read-only, unauthenticated, additive) | Accepted (2026-10-07) |
 | [0006](./0006-analytics-read-side.md) | Analytics read side: an analytics stream, a projector and a master data quality report over a separate analytical database | Accepted (2026-10-07); additive |
+| [0007](./0007-outbox-relay-attempt-cap.md) | Outbox relay attempt cap (`OUTBOX_MAX_ATTEMPTS`) | Accepted (2026-10-13) |
 
 ## Where each decision lives in the code
 
@@ -31,5 +32,6 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | 0004 | `internal/adapters/kafka/cloudevents/cloudevents.go`, `internal/adapters/outbound/kafka/encoder.go` |
 | 0005 | `cmd/mcp`, `internal/adapters/inbound/mcp` |
 | 0006 | `cmd/product-projector`, `cmd/product-reports`, `internal/analytics/report`, `internal/adapters/outbound/analyticsstore`, `analytics/migrations` |
+| 0007 | `internal/adapters/outbound/outbox/relay.go` (`WithMaxAttempts`), `internal/adapters/outbound/postgres/outbox_repository.go` (`claim`), `cmd/api/main.go` (`outboxMaxAttempts`) |
 
 Back to the [documentation](/docs/intro).
