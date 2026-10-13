@@ -23,6 +23,7 @@ and `internal/architecture/`.
 | Contract | Spectral lint of both specs; the event catalogue fitness test; MCP tool registry golden file | `apis/`, `internal/architecture/catalogue_fitness_test.go`, `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json` | CI `api-lint`; `make test` | Spectral for the lint |
 | Frontend | vitest and Testing Library for the `productmaster_mfe` remote | 7 test files under `web/src` | `cd web && npm test` | Node 22 and a built sibling `warehouse-ui-kit` |
 | Chart | Each Service selects exactly one Deployment | `charts/product-master/tests/test_service_selectors.py` | `python3 charts/product-master/tests/test_service_selectors.py` | Helm, PyYAML |
+| Chart render | The api Deployment mounts the chart ConfigMap via `envFrom` (gap fix D14); `OUTBOX_MAX_ATTEMPTS` defaults to 20 and renders `0` ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); mcp, projector and reports do not mount the ConfigMap; every backend Deployment sets `ENVIRONMENT`, `SERVICE_VERSION` and the OTLP endpoint ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)) | `charts/product-master/tests/render_test.sh` | `bash charts/product-master/tests/render_test.sh` | Helm |
 
 There is **no** Schemathesis (property-based HTTP contract) job and **no**
 evals job in this repo's CI. `EVALS.md` and `tools/harness_eval*.py` document
@@ -74,6 +75,8 @@ The suites use three container shapes:
 | `internal/application/usecases/wiring_integration_test.go` | `TestWiring_RegisterClassifyMeasureLifecycle`, `TestWiring_NoChangeEventPublishesNothing`, `TestWiring_UnknownSKUWriteIsRejected` | The write use cases wired like `cmd/api` (Postgres repositories, `UnitOfWork`, CloudEvents encoder into the outbox): register, re-register, classify and measure bump the version and enqueue one event each, in order; an identical re-register changes and publishes nothing; classifying an unknown SKU leaves no row and no event |
 | `internal/adapters/outbound/kafka/publisher_integration_test.go` | `TestPublisher_RealKafka_CloudEventsEnvelopeAndPayload` | Events raised by the real `Product` aggregate, encoded by the production `Encoder` and sent through the `RelaySink` to a real broker: CloudEvents 1.0 envelope (`type`, `specversion`, `id`, `source`), the pinned payload, the SKU as message key, no duplicate ids |
 | `internal/adapters/outbound/outbox/relay_integration_test.go` | `TestRelay_RealPostgresAndKafka_PublishesCloudEventsKeyedBySKU` | Relay draining Postgres into a real Kafka |
+| `internal/adapters/outbound/outbox/relay_cap_integration_test.go` | `TestOutboxRelay_MaxAttempts_PoisonRowExcludedThenGoodRowPublishes`, `TestOutboxRelay_MaxAttempts_ReArmedRowIsClaimedAgain`, `TestOutboxRelay_NoCap_PoisonRowBlocksLaterRows` | Relay attempt cap over real Postgres: a poison row is excluded after N failures and logged once at ERROR, and the good row behind it (same key) publishes; the runbook's re-arm SQL; `0` = unlimited ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)) |
+| `internal/adapters/outbound/outbox/outbox_trace_integration_test.go` | `TestOutboxTrace_TraceparentCrossesTheOutboxToKafka`, `TestOutboxTrace_RowWithoutTraceHeadersRelaysUnchanged` | Trace continuity over real Postgres and Kafka: the request span's `traceparent` is stored in `outbox_events.headers`, relayed by a pass on a background context and extracts to the request's trace and span; a row without stored headers relays unchanged with no headers ([ADR 0009](/docs/adr/0009-trace-context-crosses-the-outbox)) |
 | `internal/adapters/inbound/kafka/legacy_importer_integration_test.go` | `TestLegacyImporter_EndToEnd` | Legacy importer end to end (Kafka and Postgres) |
 | `internal/adapters/inbound/kafka/analytics_consumer_integration_test.go` | `TestAnalyticsConsumer_RealKafkaAndPostgres` | Projector consumer against the analytical store |
 | `internal/adapters/outbound/analyticsstore/postgres_integration_test.go` | `TestPostgres_Contract`, `TestPostgres_DedupeMarkAndEffectAreAtomic`, `TestPostgres_ReadOnlyPoolCannotWrite`, `TestPostgres_DayWindowsMatchTheGoDefinition` | Analytical migrations, projection and report queries (the same contract test runs against the in-memory store) |
@@ -97,6 +100,8 @@ The CI `integration` job runs the same command as `make integration`
 | `TestNoEventEnvelopeToggleOrFlatEnvelope`, `TestCloudEventsOnly` | CloudEvents 1.0 built only through `internal/adapters/kafka/cloudevents`; no flat envelope, no toggle |
 | `TestReplayConsumersSetCommitInterval` | consumer reader configuration rule for replay-style (unique group) consumers |
 | `TestEventCatalogueMatchesContract`, `TestEventCatalogueDetector` | every type `apis/asyncapi.yaml` declares is listed in the CloudEvents ADR (0004) |
+| `TestMCPOptionalToolInputsCarryOmitempty`, `TestMCPOptionalToolInputsSensorFailsOnBadFixtures` | every MCP tool input field whose `jsonschema` description calls it optional ("optional" or "omitted") carries `omitempty`, so the SDK does not mark it required (gap fix D16) |
+| `TestOutboxRelaysPassAttemptCap`, `TestOutboxRelayCapSensorFailsOnBadFixtures` | every non-test file under `cmd/` that builds an outbox relay (`NewRelay`) passes `WithMaxAttempts(...)` ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)) |
 
 ### Mutation testing
 
@@ -157,6 +162,7 @@ before each push.
 | `vuln` | govulncheck | every push and PR |
 | `docs-api-drift` | regenerate `docs/docs/api-reference/rest` from the OpenAPI spec and fail on any diff | every push and PR |
 | `helm-lint` | `ct lint` on the chart and the Service selector test | pull requests |
+| `chart-tests` | `charts/product-master/tests/render_test.sh` and the Service selector test | every push and PR |
 | `web` | oxlint, `tsc -b`, vitest, production build of `web/` (with `warehouse-ui-kit` built first) | every push and PR |
 | `arch-test` | `go test ./internal/architecture/... -v` | every push and PR |
 | `trivy-scan` | build the image and scan it (SARIF upload; blocks on fixable CRITICAL/HIGH) | pull requests |

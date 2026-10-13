@@ -125,7 +125,9 @@ and `GET /reports/freshness` read-only. Details:
   default. Each Service selects exactly one
   Deployment (`charts/product-master/tests/test_service_selectors.py`).
   Chart values cover `EVENT_PUBLISHER`, `KAFKA_BROKERS`,
-  `OUTBOX_RELAY_INTERVAL` and `LEGACY_IMPORT_CONSUMER_GROUP`.
+  `OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS` (relay attempt cap, ADR 0007)
+  and `LEGACY_IMPORT_CONSUMER_GROUP`; the api Deployment mounts the chart
+  ConfigMap via `envFrom` (`charts/product-master/tests/render_test.sh`).
 - Docs site: `cd docs && npm ci && npm run build`.
 
 Scaffolded from [warehouse-harness-template](https://github.com/IQVO/warehouse-harness-template).

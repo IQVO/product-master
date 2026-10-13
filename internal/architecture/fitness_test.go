@@ -195,8 +195,9 @@ func TestNoAuthMiddlewareReintroduced(t *testing.T) {
 
 // groupIDLiteralRE matches a kafka-go ReaderConfig's GroupID field being
 // assigned a bare double-quoted string literal, e.g. `GroupID: "my-group"`.
-// A symbol reference (`GroupID: AnalyticsConsumerGroup`, `GroupID: groupID,
-// `GroupID: uniqueConsumerGroup()`) never matches this.
+// A symbol reference (`GroupID: groupID` fed from LEGACY_IMPORT_CONSUMER_GROUP
+// or ANALYTICS_CONSUMER_GROUP, `GroupID: uniqueConsumerGroup()`) never
+// matches this.
 var groupIDLiteralRE = regexp.MustCompile(`GroupID:\s*"[^"]+"`)
 
 // TestKafkaConsumerGroupNeverHardcodedInline encodes a real, already-lived
@@ -207,10 +208,11 @@ var groupIDLiteralRE = regexp.MustCompile(`GroupID:\s*"[^"]+"`)
 // partition to only one of the two group members, silently starving
 // whichever process lost the race (fixed in wes-work-planning#67 by making
 // the group id env-configurable). This test doesn't ban long-lived named
-// consumer groups outright (the analytics projector's
-// AnalyticsConsumerGroup constant is a deliberate, correct exception — see
-// its own doc comment: only one instance of that consumer ever runs, so
-// there's nothing to collide with) — it bans the shape that caused the
+// consumer groups outright (the analytics projector's fixed group, the
+// defaultConsumerGroup const in cmd/product-projector/main.go overridable
+// through ANALYTICS_CONSUMER_GROUP, is a deliberate, correct exception: only
+// one projector instance consumes the analytics topic, and a stable id lets
+// a rescheduled pod resume from its committed offsets) -- it bans the shape that caused the
 // incident: a GroupID assigned directly from an inline string literal
 // rather than through a named symbol (const, var, or function call) that
 // a reviewer can trace back to its definition and reasoning.
@@ -226,7 +228,7 @@ func TestKafkaConsumerGroupNeverHardcodedInline(t *testing.T) {
 			lineNo++
 			line := scanner.Text()
 			if groupIDLiteralRE.MatchString(line) {
-				t.Errorf("%s:%d: GroupID assigned an inline string literal: %q — use a named const/var or a function call (see internal/adapters/outbound/facilitycache's uniqueConsumerGroup() for the per-process-unique pattern, or the AnalyticsConsumerGroup const for the single-instance pattern) so the group id's lifetime/uniqueness reasoning is traceable and a locally-run process can never silently join a live cluster's group", path, lineNo, strings.TrimSpace(line))
+				t.Errorf("%s:%d: GroupID assigned an inline string literal: %q — use a named const/var or a function call (see the legacy importer's env-supplied group, LEGACY_IMPORT_CONSUMER_GROUP, or the projector's defaultConsumerGroup const in cmd/product-projector/main.go) so the group id's lifetime/uniqueness reasoning is traceable and a locally-run process can never silently join a live cluster's group", path, lineNo, strings.TrimSpace(line))
 			}
 		}
 		f.Close()

@@ -41,6 +41,10 @@ info:
 
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka
     header `content-type: application/cloudevents+json; charset=UTF-8`.
+    Optional W3C trace-context headers (`traceparent`, and `tracestate` /
+    `baggage` when present) carry the trace of the request that wrote the
+    outbox row (ADR 0009); consumers may extract them, and must not require
+    them.
     `specversion`, `id`, `source` (`/warehouse/product-master`), `type`,
     `subject` (the SKU), `time`, `datacontenttype` (`application/json`) and
     `dataschema` (`urn:warehouse:product-master:events:<EventName>:v1`) are all
@@ -73,7 +77,8 @@ channels:
   warehouse.product-master.events:
     description: |
       This service's integration topic. Written by the outbox relay; key = SKU;
-      every message carries the CloudEvents content-type header. Dispatch on the
+      every message carries the CloudEvents content-type header (plus the
+      optional W3C `traceparent` of the writing request). Dispatch on the
       full `type`, ignore unknown types, dedupe on `id`, apply by `version`.
     subscribe:
       operationId: receiveProductEvents

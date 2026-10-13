@@ -21,7 +21,7 @@ instruments in this repo today.
 | `cmd/api` | `product-master` | yes | yes (Go and process collectors) | JSON on stdout |
 | `cmd/mcp` | `product-master-mcp` | yes | no | JSON on stdout |
 | `cmd/product-reports` | `product-master-reports` | yes | no | JSON on stdout |
-| `cmd/product-projector` | none | **no** (it never calls `telemetry.Setup`) | no | JSON on stdout |
+| `cmd/product-projector` | `product-master-projector` | metrics (Go runtime) and the resource identity; it opens no spans ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)) | no | JSON on stdout |
 
 ### Export
 
@@ -44,14 +44,14 @@ All of them come from libraries; the repo defines none of its own.
 | Instrument | Type | Unit | Attributes | Emitted by | Source |
 | --- | --- | --- | --- | --- | --- |
 | `http.server.request.duration` | Float64 histogram (buckets 5 ms to 10 s) | `s` | `http.method`, `http.scheme`, `http.route` (the chi pattern, e.g. `/products/{sku}`); scope attribute `service.name` | api, mcp, reports | otelchi `metric.NewServerRequestDuration`, wired in `internal/adapters/inbound/http/server.go`, `reports_handler.go`, `cmd/mcp/router.go` |
-| `go.memory.used` | Int64 observable up-down counter | `By` | `go.memory.type` (`stack`, `other`) | api, mcp, reports | contrib `runtime.Start` in `telemetry.Setup` |
-| `go.memory.limit` | Int64 observable up-down counter | `By` | | api, mcp, reports | same (only reported when a memory limit is set) |
-| `go.memory.allocated` | Int64 observable counter | `By` | | api, mcp, reports | same |
-| `go.memory.allocations` | Int64 observable counter | `{allocation}` | | api, mcp, reports | same |
-| `go.memory.gc.goal` | Int64 observable up-down counter | `By` | | api, mcp, reports | same |
-| `go.goroutine.count` | Int64 observable up-down counter | `{goroutine}` | | api, mcp, reports | same |
-| `go.processor.limit` | Int64 observable up-down counter | `{thread}` | | api, mcp, reports | same |
-| `go.config.gogc` | Int64 observable up-down counter | `%` | | api, mcp, reports | same |
+| `go.memory.used` | Int64 observable up-down counter | `By` | `go.memory.type` (`stack`, `other`) | api, mcp, reports, projector | contrib `runtime.Start` in `telemetry.Setup` |
+| `go.memory.limit` | Int64 observable up-down counter | `By` | | api, mcp, reports, projector | same (only reported when a memory limit is set) |
+| `go.memory.allocated` | Int64 observable counter | `By` | | api, mcp, reports, projector | same |
+| `go.memory.allocations` | Int64 observable counter | `{allocation}` | | api, mcp, reports, projector | same |
+| `go.memory.gc.goal` | Int64 observable up-down counter | `By` | | api, mcp, reports, projector | same |
+| `go.goroutine.count` | Int64 observable up-down counter | `{goroutine}` | | api, mcp, reports, projector | same |
+| `go.processor.limit` | Int64 observable up-down counter | `{thread}` | | api, mcp, reports, projector | same |
+| `go.config.gogc` | Int64 observable up-down counter | `%` | | api, mcp, reports, projector | same |
 
 The otelchi request-duration histogram carries **no status-code attribute**, so
 error rates have to come from traces, logs or the Kong gateway metrics, not from
@@ -83,9 +83,15 @@ dashboards query them: `http_server_request_duration_seconds_bucket` and
   `/products/{sku}/dimensions/measured`, `/reports/master-data-quality`; MCP
   requests get the span of the chi mount that serves them (`/mcp` or `/`).
 - There are no hand-written spans: the use cases, the Postgres adapters, the
-  outbox relay and the Kafka consumers create none, and the Kafka messages
-  carry no trace context header. A trace therefore ends at the HTTP boundary;
-  follow an event across services by its CloudEvents `id` in the logs instead.
+  outbox relay and the Kafka consumers create none.
+- **Trace context crosses the outbox** ([ADR 0009](/docs/adr/0009-trace-context-crosses-the-outbox)):
+  `postgres.OutboxRepo.Insert` injects the request span's W3C context
+  (`traceparent`, and `tracestate`/`baggage` when present) into each
+  `outbox_events.headers` row after `content-type`, and the relay copies the
+  stored headers onto the Kafka message. A consumer that calls `Extract` on
+  the message headers continues the producing request's trace. Rows written
+  without an active span (or by the in-memory outbox) carry no
+  `traceparent`; follow those by their CloudEvents `id` in the logs.
 
 ## Logs
 
@@ -99,8 +105,10 @@ In the kind cluster Alloy ships them to Loki with the label
 | `DATABASE_URL not configured; using in-memory adapters` | INFO | | api | No Postgres: data is lost on restart. |
 | `postgres adapters configured` | INFO | | api | Migrations and ping succeeded. |
 | `retrying` / `succeeded after retry` | WARN / INFO | `op`, `attempt`, `in`, `err` | all four | Boot retry of the migrations or the first database ping (`internal/bootretry`). |
-| `outbox relay running` | INFO | `publisher`, `interval`, `topics` | api | Relay started. |
-| `outbox relay pass failed` | ERROR | `error` | api | A send failed; the row keeps `last_error` and is retried. |
+| `outbox relay running` | INFO | `publisher`, `interval`, `max_attempts`, `topics` | api | Relay started. |
+| `outbox relay pass failed` | ERROR | `error` (contains `outbox row <id> (<type>)`) | api | A send failed; the row keeps `last_error` and is retried until it reaches the attempt cap. |
+| `outbox relay: row reached the attempt cap and is excluded from future claims; re-arm it with attempts = 0 after fixing the cause` | ERROR (once per row) | `outbox_id`, `topic`, `event_type`, `key`, `attempts`, `max_attempts`, `error` | api | The row failed `OUTBOX_MAX_ATTEMPTS` times and is no longer claimed ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); re-arm it per the runbook. |
+| `invalid OUTBOX_MAX_ATTEMPTS; using the default` | WARN | `value`, `default` | api | The env value was negative or not an integer; the cap is 20. |
 | `event published (log sink)` | INFO | `topic`, `type`, `subject`, `id` | api | `EVENT_PUBLISHER=log`: the event was **not** sent to Kafka. |
 | `legacy classification importer running` | INFO | `topic`, `group_id`, `brokers` | api | Importer started. |
 | `legacy classification processed` | INFO | `event_id`, `sku`, `outcome` (`applied`, `unchanged`, `duplicate`) | api | One legacy message handled. |
@@ -142,7 +150,8 @@ None of these exist yet; they are derived from the failure modes in the code.
 | Alert | Signal | Why |
 | --- | --- | --- |
 | Outbox backlog growing | `SELECT count(*) FROM outbox_events WHERE published_at IS NULL` above a few hundred, or `min(created_at)` older than a few minutes | Kafka unreachable or a row failing forever; downstream copies go stale. |
-| Outbox row stuck | any unpublished row with `attempts` above 10 | The relay stops at the first failing row, so one row blocks all later events. |
+| Outbox row stuck | any unpublished row with `attempts` above 10 | The relay stops at the first failing row, so one row blocks all later events until it reaches the attempt cap. |
+| Outbox row excluded | any `outbox relay: row reached the attempt cap ...` ERROR line, or `SELECT count(*) FROM outbox_events WHERE published_at IS NULL AND attempts >= 20` above 0 | The row is never delivered until an operator re-arms it (runbook). |
 | Relay in log mode in a cluster | log line `event published (log sink)` where Kafka is expected | `EVENT_PUBLISHER` not set to `kafka`: nothing reaches consumers. |
 | Analytics stale | `GET /reports/freshness` `lag_seconds` above your tolerance while writes happen | Projector down, blocked on a transient error, or relay not publishing. |
 | DLQ not empty | messages on `warehouse.product-master.analytics.dlq`, or the log line `analytics: dead-lettering ...` | A payload the projector can never apply. |
