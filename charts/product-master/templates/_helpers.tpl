@@ -165,3 +165,20 @@ boot (cmd/api startLegacyImporter). Fail at render instead of crash-looping.
 {{- fail "config.legacyImportConsumerGroup is set but kafka.enabled is false — the binary exits at boot (LEGACY_IMPORT_CONSUMER_GROUP requires KAFKA_BROKERS). Set kafka.enabled=true and kafka.brokers." -}}
 {{- end -}}
 {{- end -}}
+
+
+{{/*
+Comma-joined names of this chart's enabled KongPlugins, for the
+konghq.com/plugins annotation on every HTTPRoute this chart renders.
+Empty string (annotation omitted) when none are enabled — standalone
+installs without Kong are unaffected.
+*/}}
+{{- define "product-master.kongPluginNames" -}}
+{{- $names := list -}}
+{{- range $name, $cfg := .Values.kongPlugins -}}
+{{- if $cfg.enabled -}}
+{{- $names = append $names (printf "%s-%s" (include "product-master.fullname" $) $name) -}}
+{{- end -}}
+{{- end -}}
+{{- join "," $names -}}
+{{- end -}}
