@@ -346,7 +346,7 @@ jobs:
         run: ct lint --charts charts/product-master --validate-maintainers=false --check-version-increment=false
       - name: Chart wiring tests (each Service selects exactly one Deployment)
         run: |
-          pip install pyyaml
+          pip install --require-hashes -r .github/requirements/chart-tests.txt
           python3 charts/product-master/tests/test_service_selectors.py
 
   # ============================================================
@@ -375,7 +375,7 @@ jobs:
         run: bash charts/product-master/tests/render_test.sh
       - name: Service selector test
         run: |
-          pip install pyyaml
+          pip install --require-hashes -r .github/requirements/chart-tests.txt
           python3 charts/product-master/tests/test_service_selectors.py
 
   # web/ is `productmaster_mfe`, the Module Federation remote the
