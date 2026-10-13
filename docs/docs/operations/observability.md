@@ -83,9 +83,15 @@ dashboards query them: `http_server_request_duration_seconds_bucket` and
   `/products/{sku}/dimensions/measured`, `/reports/master-data-quality`; MCP
   requests get the span of the chi mount that serves them (`/mcp` or `/`).
 - There are no hand-written spans: the use cases, the Postgres adapters, the
-  outbox relay and the Kafka consumers create none, and the Kafka messages
-  carry no trace context header. A trace therefore ends at the HTTP boundary;
-  follow an event across services by its CloudEvents `id` in the logs instead.
+  outbox relay and the Kafka consumers create none.
+- **Trace context crosses the outbox** ([ADR 0009](/docs/adr/0009-trace-context-crosses-the-outbox)):
+  `postgres.OutboxRepo.Insert` injects the request span's W3C context
+  (`traceparent`, and `tracestate`/`baggage` when present) into each
+  `outbox_events.headers` row after `content-type`, and the relay copies the
+  stored headers onto the Kafka message. A consumer that calls `Extract` on
+  the message headers continues the producing request's trace. Rows written
+  without an active span (or by the in-memory outbox) carry no
+  `traceparent`; follow those by their CloudEvents `id` in the logs.
 
 ## Logs
 

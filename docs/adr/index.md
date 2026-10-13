@@ -22,6 +22,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0006](./0006-analytics-read-side.md) | Analytics read side: an analytics stream, a projector and a master data quality report over a separate analytical database | Accepted (2026-10-07); additive |
 | [0007](./0007-outbox-relay-attempt-cap.md) | Outbox relay attempt cap (`OUTBOX_MAX_ATTEMPTS`) | Accepted (2026-10-13) |
 | [0008](./0008-projector-telemetry-and-environment.md) | The analytics projector sets up telemetry; every backend Deployment sets ENVIRONMENT | Accepted (2026-10-13); additive |
+| [0009](./0009-trace-context-crosses-the-outbox.md) | The W3C trace context crosses the outbox to Kafka | Accepted (2026-10-13); additive |
 
 ## Where each decision lives in the code
 
@@ -35,5 +36,6 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | 0006 | `cmd/product-projector`, `cmd/product-reports`, `internal/analytics/report`, `internal/adapters/outbound/analyticsstore`, `analytics/migrations` |
 | 0007 | `internal/adapters/outbound/outbox/relay.go` (`WithMaxAttempts`), `internal/adapters/outbound/postgres/outbox_repository.go` (`claim`), `cmd/api/main.go` (`outboxMaxAttempts`) |
 | 0008 | `cmd/product-projector/main.go` (`setupTelemetry`), `charts/product-master/templates/{projector,reports}-deployment.yaml` |
+| 0009 | `internal/adapters/outbound/postgres/outbox_repository.go` (`Insert`, `traceHeaders`), `internal/adapters/outbound/kafka/relay_sink.go` |
 
 Back to the [documentation](/docs/intro).
