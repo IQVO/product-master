@@ -21,6 +21,13 @@ consumer's code on its `develop` branch.
 
 Classifications of neighbours come from the warehouse-docs contexts table.
 
+Every message carries the CloudEvents `content-type` header and, when the
+writing request had an active span, the W3C `traceparent` (plus
+`tracestate`/`baggage` when present) of that request
+([ADR 0009](/docs/adr/0009-trace-context-crosses-the-outbox)). A consumer that
+starts a span should call `otel.GetTextMapPropagator().Extract` on the message
+headers first; no consumer may require the header.
+
 Evidence (each on the consumer's `develop`):
 `inventory-storage` `internal/adapters/inbound/kafka/product_master_consumer.go`
 and `cmd/inventory/productmaster.go`;

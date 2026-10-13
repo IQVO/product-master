@@ -115,7 +115,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
           name: coverage
@@ -153,9 +153,9 @@ jobs:
 
   # Fast, BLOCKING mutation subset: runs on every push/PR so a drop in test
   # quality (tests that execute but stop asserting) is caught immediately.
-  # Subset = ./internal/domain/product, the StockUnit aggregate: the richest
-  # behavioural core in the domain (15 of the 41 domain mutants) and it
-  # completes in ~1 minute. Thresholds/workers/timeout come from .gremlins.yaml,
+  # Subset = ./internal/domain/product, the Product aggregate. It is the whole
+  # domain layer today (all 66 domain mutants, 66 killed, measured
+  # 2026-10-13) and completes in well under a minute. Thresholds/workers/timeout come from .gremlins.yaml,
   # so this job, the scheduled `mutation` job below and `make mutation` all
   # agree. The exhaustive run stays in the `mutation` job.
   # ============================================================
@@ -216,7 +216,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "20"
       - name: Dead code (go tool deadcode, -test so test-only helpers don't false-positive)
@@ -260,7 +260,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "20"
       - name: Install Spectral
@@ -308,7 +308,7 @@ jobs:
         working-directory: docs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "20"
           cache: npm
@@ -341,12 +341,41 @@ jobs:
         with:
           python-version: "3.x"
           check-latest: true
-      - uses: helm/chart-testing-action@6ec842c01de15ebb84c8627d2744a0c2f2755c9f # v2.8.0
+      - uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
       - name: Run chart-testing (lint)
         run: ct lint --charts charts/product-master --validate-maintainers=false --check-version-increment=false
       - name: Chart wiring tests (each Service selects exactly one Deployment)
         run: |
-          pip install pyyaml
+          pip install --require-hashes -r .github/requirements/chart-tests.txt
+          python3 charts/product-master/tests/test_service_selectors.py
+
+  # ============================================================
+  # CLASSIFICATION: PACKAGING VALIDATION (Helm chart render tests)
+  # Runs on EVERY push and PR (unlike helm-lint above, PR-only): the render
+  # assertions guard behaviour, not packaging -- the api Deployment mounting
+  # the chart ConfigMap via envFrom (gap fix D14), the outbox attempt cap
+  # default (D12, ADR 0007), ENVIRONMENT/SERVICE_VERSION/OTLP endpoint on
+  # every backend Deployment (D21, ADR 0008), and every Service selecting
+  # exactly one Deployment. Same scripts as
+  # `bash charts/product-master/tests/render_test.sh` and
+  # `python3 charts/product-master/tests/test_service_selectors.py`.
+  # ============================================================
+  chart-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: v3.16.4
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.x"
+      - name: Chart render assertions
+        run: bash charts/product-master/tests/render_test.sh
+      - name: Service selector test
+        run: |
+          pip install --require-hashes -r .github/requirements/chart-tests.txt
           python3 charts/product-master/tests/test_service_selectors.py
 
   # web/ is `productmaster_mfe`, the Module Federation remote the
@@ -374,7 +403,7 @@ jobs:
           repository: IQVO/warehouse-ui-kit
           ref: develop
           path: warehouse-ui-kit
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           cache: npm
@@ -401,15 +430,16 @@ jobs:
       - name: Architecture fitness tests
         run: go test ./internal/architecture/... -v
 
-  # Shift-left container scan: builds the image (no push) on every push AND
-  # every PR, so a vulnerable base image or dependency is caught before
+  # Shift-left container scan: builds the image (no push) on every pull
+  # request, so a vulnerable base image or dependency is caught before
   # merge, not just at publish time. Blocks on CRITICAL/HIGH with a known
   # fix; findings also land in the repo's Security tab (SARIF) regardless
   # of pass/fail so history is visible even when nothing blocks.
   # ============================================================
   # CLASSIFICATION: SECURITY SCANNER (container image)
-  # Runs ONLY for a pull_request targeting main -- validated pre-merge,
-  # never on develop pushes/PRs or on push-to-main (already validated).
+  # Runs for EVERY pull_request (into develop and into main) -- validated
+  # pre-merge; never on a push (develop or main), which was already
+  # validated as a PR.
   # ============================================================
 
 
@@ -443,7 +473,7 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM'
           ignore-unfixed: true
       - name: Upload Trivy SARIF to Security tab
-        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
@@ -511,7 +541,7 @@ jobs:
             --type spdxjson \
             ghcr.io/iqvo/product-master@${{ steps.build.outputs.digest }}
       - name: Upload SBOM as a workflow artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: sbom
           path: sbom.spdx.json
