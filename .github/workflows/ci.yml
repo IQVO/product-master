@@ -153,9 +153,9 @@ jobs:
 
   # Fast, BLOCKING mutation subset: runs on every push/PR so a drop in test
   # quality (tests that execute but stop asserting) is caught immediately.
-  # Subset = ./internal/domain/product, the StockUnit aggregate: the richest
-  # behavioural core in the domain (15 of the 41 domain mutants) and it
-  # completes in ~1 minute. Thresholds/workers/timeout come from .gremlins.yaml,
+  # Subset = ./internal/domain/product, the Product aggregate. It is the whole
+  # domain layer today (all 66 domain mutants, 66 killed, measured
+  # 2026-10-13) and completes in well under a minute. Thresholds/workers/timeout come from .gremlins.yaml,
   # so this job, the scheduled `mutation` job below and `make mutation` all
   # agree. The exhaustive run stays in the `mutation` job.
   # ============================================================
@@ -401,15 +401,16 @@ jobs:
       - name: Architecture fitness tests
         run: go test ./internal/architecture/... -v
 
-  # Shift-left container scan: builds the image (no push) on every push AND
-  # every PR, so a vulnerable base image or dependency is caught before
+  # Shift-left container scan: builds the image (no push) on every pull
+  # request, so a vulnerable base image or dependency is caught before
   # merge, not just at publish time. Blocks on CRITICAL/HIGH with a known
   # fix; findings also land in the repo's Security tab (SARIF) regardless
   # of pass/fail so history is visible even when nothing blocks.
   # ============================================================
   # CLASSIFICATION: SECURITY SCANNER (container image)
-  # Runs ONLY for a pull_request targeting main -- validated pre-merge,
-  # never on develop pushes/PRs or on push-to-main (already validated).
+  # Runs for EVERY pull_request (into develop and into main) -- validated
+  # pre-merge; never on a push (develop or main), which was already
+  # validated as a PR.
   # ============================================================
 
 

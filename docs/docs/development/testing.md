@@ -97,6 +97,7 @@ The CI `integration` job runs the same command as `make integration`
 | `TestNoEventEnvelopeToggleOrFlatEnvelope`, `TestCloudEventsOnly` | CloudEvents 1.0 built only through `internal/adapters/kafka/cloudevents`; no flat envelope, no toggle |
 | `TestReplayConsumersSetCommitInterval` | consumer reader configuration rule for replay-style (unique group) consumers |
 | `TestEventCatalogueMatchesContract`, `TestEventCatalogueDetector` | every type `apis/asyncapi.yaml` declares is listed in the CloudEvents ADR (0004) |
+| `TestMCPOptionalToolInputsCarryOmitempty`, `TestMCPOptionalToolInputsSensorFailsOnBadFixtures` | every MCP tool input field whose `jsonschema` description calls it optional ("optional" or "omitted") carries `omitempty`, so the SDK does not mark it required (gap fix D16) |
 
 ### Mutation testing
 

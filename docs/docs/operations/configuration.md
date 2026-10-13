@@ -31,7 +31,7 @@ API are unauthenticated fleet-wide, and access control is the cluster boundary.
 | `LEGACY_IMPORT_CONSUMER_GROUP` | unset | no | Consumer group of the ADR 0003 legacy classification importer on `warehouse.inventory.events`. Unset means the importer is **not started**. Use a stable id so a rescheduled pod resumes from its committed offsets. | `cmd/api/main.go` (`startLegacyImporter`) |
 | `SHUTDOWN_DRAIN_DELAY` | `5s` | no | Wait between flipping `/readyz` to `503` and closing the listener on SIGTERM. Go duration only; `0` disables the wait; negative or unparsable values log a WARN and use `5s`. | `cmd/api/main.go` (`shutdownDrainDelay`) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | no | OTLP/gRPC collector (insecure) for traces and metrics. Export never blocks: without a collector the telemetry is dropped and the service runs normally. | `cmd/api/main.go` (`setupTelemetry`), `internal/adapters/outbound/telemetry/telemetry.go` |
-| `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn` or `error` (case-insensitive); anything else is `info`. Unlike the other three binaries, `cmd/api` does not accept `warning`. | `cmd/api/main.go` (`newLogger`) |
+| `LOG_LEVEL` | `info` | no | `debug`, `info`, `warn`/`warning` or `error` (case-insensitive); anything else is `info`. Every binary accepts `warning` like `warn`. | `cmd/api/main.go` (`newLogger`) |
 | `SERVICE_VERSION` | `dev` | no | `service.version` resource attribute on every span and metric. The chart sets it to the image tag. | `cmd/api/main.go` (`setupTelemetry`) |
 | `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute on every span and metric. | `internal/adapters/outbound/telemetry/telemetry.go` (`Environment`) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` (the warehouse-console shell's dev port) | no | Comma-separated browser origins allowed by the CORS middleware (entries are trimmed). Allowed methods `GET` and `PUT`, headers `Accept` and `Content-Type`, no credentials. Read once, when the router is built. Add `http://localhost:5191` to run the standalone remote (`web/`, `npm run dev`) against a local API. In the kind cluster Kong's CORS plugin handles browsers, so the chart leaves it unset. | `internal/adapters/inbound/http/server.go` (`corsAllowedOrigins`) |
@@ -83,7 +83,7 @@ These are constants in code; changing them needs a code change.
 | Value | Constant | Source |
 | --- | --- | --- |
 | Outbox relay batch size: 100 rows per pass | `DefaultBatchSize` | `internal/adapters/outbound/outbox/relay.go` |
-| Boot retry: 5 attempts, backoff 1s doubling | `bootretry.Retries`, `bootretry.Delay` | `internal/bootretry/bootretry.go` |
+| Boot retry: 5 attempts, backoff 1s doubling, slept only between attempts (1+2+4+8 = 15 s in total) | `bootretry.Retries`, `bootretry.Delay` | `internal/bootretry/bootretry.go` |
 | HTTP graceful drain 10s; worker drain 10s each (importer, relay) | `shutdownTimeout`, `workerDrainTimeout` | `cmd/api/main.go` |
 | Consumer retry backoff: 200 ms doubling, capped at 5 s | `DefaultRetryInitial`, `DefaultRetryMax` | `internal/adapters/inbound/kafka/kafka.go` |
 | Request body limit 64 KiB; unknown JSON fields rejected | `maxBodyBytes` | `internal/adapters/inbound/http/response.go` |

@@ -18,7 +18,7 @@
 //	KAFKA_BROKERS             comma-separated brokers (required)
 //	ANALYTICS_CONSUMER_GROUP  fixed consumer group (default product-master-analytics)
 //	ADMIN_ADDR                /healthz and /readyz listen address (default :8091)
-//	LOG_LEVEL                 debug | info | warn | error (default info)
+//	LOG_LEVEL                 debug | info | warn (or warning) | error (default info)
 package main
 
 import (
