@@ -123,6 +123,12 @@ lived.
 `./internal/domain/...`, `./internal/application/...` and
 `./internal/analytics/...` and fail below **90%**.
 
+The Makefile is the single source of the coverage scope and threshold
+(gap 16d): the CI `test` job runs `make coverage` instead of its own
+`go test -coverpkg=...` command, so the local and the PR gate cannot drift;
+harness `repo_lint` rule R11 (coverage-scope) forbids a workflow passing
+`-coverpkg` itself. Change the scope or the threshold in the Makefile only.
+
 ## Make targets
 
 | Target | Runs |
@@ -153,7 +159,7 @@ before each push.
 | `lint` | golangci-lint v2.14.0 | every push and PR |
 | `guide-lint` | `scripts/harness/guide_lint.py`, `scripts/harness/test_hook.py` (advisory, `continue-on-error`) | every push and PR |
 | `complexity` | golangci-lint with only gocyclo, gocognit, cyclop, funlen, nestif; plus an informational gocyclo report | every push and PR |
-| `test` | build, vet, unit tests with coverage, 90% gate | every push and PR |
+| `test` | build, vet, then `make coverage` (unit tests with the Makefile's coverage scope and 90% gate) | every push and PR |
 | `bdd` | `go test ./... -run TestFeatures -v` | every push and PR |
 | `integration` | `go test -tags=integration ./... -race -count=1` | every push and PR |
 | `mutation-fast` | gremlins on `./internal/domain/product` | every push and PR |
