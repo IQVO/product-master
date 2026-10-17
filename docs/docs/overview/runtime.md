@@ -160,5 +160,5 @@ pool, so nothing committed is stranded.
 OTLP traces and metrics (`OTEL_EXPORTER_OTLP_ENDPOINT`), `otelchi` route spans
 and request-duration metrics on every REST route, and `GET /metrics` with the
 Go runtime and process collectors (`internal/adapters/outbound/telemetry`).
-There is no business metric yet. Details, log fields and suggested alerts:
+One business counter, `product_master.products.registered` (by `outcome`), is pushed over OTLP. Details, log fields and suggested alerts:
 [Observability](/docs/operations/observability).

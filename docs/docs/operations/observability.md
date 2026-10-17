@@ -11,8 +11,8 @@ alert on. Everything below is wired in
 `internal/adapters/outbound/telemetry`, the routers in
 `internal/adapters/inbound/http` and `cmd/mcp/router.go`, and the libraries
 pinned in `go.mod` (otelchi v0.12.3, OpenTelemetry Go v1.47.0, contrib runtime
-v0.72.0, Prometheus client v1.24.1). There are **no** custom business metric
-instruments in this repo today.
+v0.72.0, Prometheus client v1.24.1). There is **one** custom business instrument,
+`product_master.products.registered`, listed under Metric instruments.
 
 ## Signals per binary
 
@@ -39,11 +39,12 @@ instruments in this repo today.
 
 ## Metric instruments
 
-All of them come from libraries; the repo defines none of its own.
+All of them come from libraries except `product_master.products.registered`, the one business instrument the repo defines (ADR 0013).
 
 | Instrument | Type | Unit | Attributes | Emitted by | Source |
 | --- | --- | --- | --- | --- | --- |
 | `http.server.request.duration` | Float64 histogram (buckets 5 ms to 10 s) | `s` | `http.method`, `http.scheme`, `http.route` (the chi pattern, e.g. `/products/{sku}`); scope attribute `service.name` | api, mcp, reports | otelchi `metric.NewServerRequestDuration`, wired in `internal/adapters/inbound/http/server.go`, `reports_handler.go`, `cmd/mcp/router.go` |
+| `product_master.products.registered` | Int64 counter | `{product}` | `outcome` (`created`, `description_changed`, `unchanged`) | api | `telemetry.ProductMetrics`, created in `cmd/api/main.go` and incremented on every `RegisterProduct` call; OTLP only (`GET /metrics` serves just the Go and process collectors) |
 | `go.memory.used` | Int64 observable up-down counter | `By` | `go.memory.type` (`stack`, `other`) | api, mcp, reports, projector | contrib `runtime.Start` in `telemetry.Setup` |
 | `go.memory.limit` | Int64 observable up-down counter | `By` | | api, mcp, reports, projector | same (only reported when a memory limit is set) |
 | `go.memory.allocated` | Int64 observable counter | `By` | | api, mcp, reports, projector | same |
