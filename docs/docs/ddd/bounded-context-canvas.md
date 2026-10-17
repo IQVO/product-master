@@ -232,7 +232,7 @@ Top terms: **Product**, **SKU**, **Classification**, **Handling tag**,
 - Migration: ADR 0003's runbook compares the count of classified products
   (`GET /products?classified=true`) with inventory-storage's
   `product_classifications` row count.
-- No business metric is emitted yet.
+- One business counter is emitted over OTLP: `product_master.products.registered`, by `outcome` (`created`, `description_changed`, `unchanged`).
 
 ## Open Questions
 
