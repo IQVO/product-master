@@ -30,7 +30,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | --- | --- |
 | 0001 | `internal/domain/product` (the `Product` aggregate), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
 | 0002 | `internal/domain/product/physical.go` (declared, measured, effective, 10% discrepancy) |
-| 0003 | `internal/adapters/inbound/kafka/legacy_importer.go`, `internal/application/usecases/import_legacy_classification.go` |
+| 0003 | importer removed at stage E (2026-10-17); `internal/adapters/inbound/kafka/kafka.go`, `cmd/api/main.go` |
 | 0004 | `internal/adapters/kafka/cloudevents/cloudevents.go`, `internal/adapters/outbound/kafka/encoder.go` |
 | 0005 | `cmd/mcp`, `internal/adapters/inbound/mcp` |
 | 0006 | `cmd/product-projector`, `cmd/product-reports`, `internal/analytics/report`, `internal/adapters/outbound/analyticsstore`, `analytics/migrations` |

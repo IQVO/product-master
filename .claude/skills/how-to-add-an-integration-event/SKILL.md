@@ -166,7 +166,7 @@ when this consumer rebuilds a complete read model from a topic's FULL
 history on every start (an event-sourced local cache, not a work queue) —
 see inventory-storage's facility-cache consumer (`consumerGroupPrefix` +
 `uniqueConsumerGroup()`); product-master has no such consumer. Its legacy
-importer is Pattern A with the group from `LEGACY_IMPORT_CONSUMER_GROUP`. The group id MUST be unique per process instance
+consumer is Pattern A with the group from env (the retired ADR 0003 importer used `LEGACY_IMPORT_CONSUMER_GROUP`). The group id MUST be unique per process instance
 (hostname+PID+timestamp), NEVER a fixed shared string. Consumer group
 offsets are shared infrastructure state: a brand-new process joining a
 group an EARLIER instance already consumed resumes from that instance's

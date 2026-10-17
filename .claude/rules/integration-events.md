@@ -93,7 +93,7 @@ are omitted when unset. Golden exact-JSON tests pin every type.
 
 ## Consumer group id
 
-The legacy importer's group id comes from env `LEGACY_IMPORT_CONSUMER_GROUP`
+The group id comes from env (the retired ADR 0003 importer used `LEGACY_IMPORT_CONSUMER_GROUP`)
 (unset = importer not started). It is a STABLE group (at-least-once,
 `FetchMessage` + `CommitMessages` after the unit of work that claims the
 CloudEvents `id` and applies the import). Any consumer group id MUST be env-configurable, never a hardcoded string literal --

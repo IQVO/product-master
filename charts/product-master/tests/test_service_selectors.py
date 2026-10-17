@@ -38,7 +38,6 @@ ENABLE_EVERYTHING = BASE + [
     "--set", "frontend.enabled=true",
     "--set", "autoscaling.api.enabled=true",
     "--set", "config.eventPublisher=kafka",
-    "--set", "config.legacyImportConsumerGroup=product-master-legacy-import",
     "--set", "kafka.enabled=true",
     "--set", "gatewayApi.enabled=true",
     "--set", "ingress.enabled=true",
@@ -103,7 +102,7 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
         container = deployments[mcp]["spec"]["template"]["spec"]["containers"][0]
         if container.get("command") != ["/app/mcp"]:
             failures.append("the MCP Deployment must run /app/mcp")
-        stray = {"KAFKA_BROKERS", "EVENT_PUBLISHER", "LEGACY_IMPORT_CONSUMER_GROUP"} & set(env_names(deployments[mcp]))
+        stray = {"KAFKA_BROKERS", "EVENT_PUBLISHER"} & set(env_names(deployments[mcp]))
         if stray:
             failures.append(f"the MCP Deployment must not get Kafka/relay env (it never dials Kafka): {sorted(stray)}")
 
@@ -151,7 +150,7 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
         failures.append("the api Deployment must omit replicas when its HPA owns them")
 
     api_env = env_names(deployments.get(RELEASE, {"spec": {"template": {"spec": {"containers": [{}]}}}}))
-    for want in ("EVENT_PUBLISHER", "KAFKA_BROKERS", "LEGACY_IMPORT_CONSUMER_GROUP", "DATABASE_URL"):
+    for want in ("EVENT_PUBLISHER", "KAFKA_BROKERS", "DATABASE_URL"):
         if want not in api_env:
             failures.append(f"the api Deployment does not render {want} from its dedicated value")
     duplicates = sorted({n for n in api_env if api_env.count(n) > 1})
@@ -199,7 +198,6 @@ def check_refusals(failures: list[str]) -> None:
     for label, args, needle in (
         ("without a database source", [], "requires database.url or database.existingSecret"),
         ("EVENT_PUBLISHER=kafka without kafka", BASE + ["--set", "config.eventPublisher=kafka"], "kafka.enabled is false"),
-        ("the legacy importer without kafka", BASE + ["--set", "config.legacyImportConsumerGroup=g"], "LEGACY_IMPORT_CONSUMER_GROUP requires KAFKA_BROKERS"),
         ("analytics without a DSN source", BASE + ["--set", "analytics.enabled=true", "--set", "kafka.enabled=true"], "neither analytics.database.projectorUrl"),
         ("analytics without kafka", BASE + ["--set", "analytics.enabled=true", "--set", "analytics.database.existingSecret=s"], "analytics.enabled is true but kafka.enabled is false"),
     ):
@@ -221,7 +219,7 @@ def main() -> int:
     if stray:
         failures.append(f"optional components rendered with default values: {stray}")
     dep = next(d for d in defaults if d.get("kind") == "Deployment")
-    if "LEGACY_IMPORT_CONSUMER_GROUP" in env_names(dep) or "KAFKA_BROKERS" in env_names(dep):
+    if "KAFKA_BROKERS" in env_names(dep):
         failures.append("the legacy importer / KAFKA_BROKERS must be off with default values")
 
     check_refusals(failures)

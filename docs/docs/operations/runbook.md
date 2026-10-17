@@ -125,7 +125,6 @@ Source: `cmd/api/main.go`, `internal/application/usecases/writer.go`,
 | `warehouse.product-master.analytics` | produced | outbox relay in `cmd/api` | n/a | SKU | Same five events, same CloudEvents `id`, dataschema `urn:warehouse:product-master:analytics:<EventName>:v1`. |
 | `warehouse.product-master.analytics` | consumed | `cmd/product-projector` | `ANALYTICS_CONSUMER_GROUP` (default `product-master-analytics`) | | At-least-once; offsets committed only after the event is applied or dead-lettered. |
 | `warehouse.product-master.analytics.dlq` | produced | `cmd/product-projector` | n/a | original key | Poison messages, raw and unmodified, plus `x-dlq-*` headers. |
-| `warehouse.inventory.events` | consumed | legacy importer in `cmd/api` | `LEGACY_IMPORT_CONSUMER_GROUP` (warehouse-infra uses `product-master-legacy-import`) | | Migration only (ADR 0003); acts on `com.warehouse.wms.inventory-storage.product.ProductClassified` only. |
 
 Every writer uses `RequireAll` acks, the `Hash` balancer on the key (one
 SKU's events stay in order on one partition), a 10 ms batch timeout and

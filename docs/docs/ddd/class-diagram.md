@@ -267,10 +267,9 @@ implement.
 flowchart LR
   subgraph inbound[Inbound adapters]
     HTTP[http.Server, chi router]
-    LEG[kafka.LegacyImporter]
   end
   subgraph app[Application]
-    UC[usecases: RegisterProduct, ClassifyProduct, DeclareDimensions, RecordMeasurement, ImportLegacyClassification, GetProduct, ListProducts]
+    UC[usecases: RegisterProduct, ClassifyProduct, DeclareDimensions, RecordMeasurement, GetProduct, ListProducts]
     PORTS[ports: ProductRepository, OutboxRepository, EventEncoder, ProcessedEvents, UnitOfWork, Clock]
   end
   subgraph domain[Domain]
@@ -283,7 +282,6 @@ flowchart LR
     REL[outbox.Relay with kafka.RelaySink or LogSink]
   end
   HTTP --> UC
-  LEG --> UC
   UC --> PROD
   UC --> PORTS
   PG -. implements .-> PORTS
@@ -293,5 +291,5 @@ flowchart LR
 ```
 
 Source: `cmd/api/main.go` (`buildAdapters`, `buildServer`,
-`startLegacyImporter`, `startOutboxRelay`), `internal/architecture/architecture_test.go`.
+`startOutboxRelay`), `internal/architecture/architecture_test.go`.
 Omits: telemetry, readiness and the CloudEvents helper package.

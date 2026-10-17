@@ -99,17 +99,6 @@ func (p *Product) Classify(c Classification, now time.Time) ([]Event, error) {
 	return p.setClassification(c, SourceNative, now), nil
 }
 
-// ImportLegacyClassification applies a classification imported from
-// inventory-storage during the migration (ADR 0003). It never replaces a
-// native classification and is no change when the classification is
-// identical to the current one.
-func (p *Product) ImportLegacyClassification(c Classification, now time.Time) []Event {
-	if p.classification != nil && p.source == SourceNative {
-		return nil
-	}
-	return p.setClassification(c, SourceLegacyImport, now)
-}
-
 func (p *Product) setClassification(c Classification, source ClassificationSource, now time.Time) []Event {
 	if p.classification != nil && p.source == source && p.classification.Equal(c) {
 		return nil

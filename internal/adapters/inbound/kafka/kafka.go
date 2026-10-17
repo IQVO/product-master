@@ -1,17 +1,13 @@
-// Package kafka holds this service's INBOUND Kafka consumer: the legacy
-// classification importer (ADR 0003), which reads inventory-storage's
-// ProductClassified from warehouse.inventory.events during the migration.
-// It decodes CloudEvents 1.0 only via internal/adapters/kafka/cloudevents and
-// dispatches on the FULL `type` string.
+// Package kafka holds the shared machinery of this service's INBOUND Kafka
+// consumers (the product projector's consumer lives in cmd/product-projector).
+// Consumers decode CloudEvents 1.0 only via
+// internal/adapters/kafka/cloudevents and dispatch on the FULL `type` string.
 //
-// Delivery guarantee: AT-LEAST-ONCE with an ATOMIC effect. Each message is
-// handled inside ONE unit of work (processed-event claim + effect commit or
-// roll back together, see usecases.ImportLegacyClassification) and its
+// Delivery guarantee: AT-LEAST-ONCE. Each message is handled first and its
 // offset is committed only AFTER handling returned nil (FetchMessage +
 // CommitMessages). Handling returns a non-nil error ONLY for transient
 // failures; the run loop then retries the SAME message with capped
-// exponential backoff and never commits past it. Deterministic problems (not
-// a CloudEvent, unknown type, malformed payload, invalid classification) are
+// exponential backoff and never commits past it. Deterministic problems are
 // logged at WARN and committed past.
 package kafka
 

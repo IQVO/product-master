@@ -21,7 +21,7 @@ configmap_name="$(awk '/^  name:/ {print $2; exit}' <<<"$configmap")"
 # D14: every config.* value is rendered into the chart ConfigMap, and the api
 # Deployment -- the only workload whose binary (cmd/api) reads those keys
 # (HTTP_ADDR, OUTBOX_RELAY_INTERVAL, OUTBOX_MAX_ATTEMPTS, SHUTDOWN_DRAIN_DELAY,
-# LEGACY_IMPORT_CONSUMER_GROUP, CORS_ALLOWED_ORIGINS, ...) -- must mount it
+# CORS_ALLOWED_ORIGINS, ...) -- must mount it
 # with envFrom, or a value that is only in the ConfigMap silently does nothing.
 grep -A3 'envFrom:' <<<"$api_deployment" | grep -q 'configMapRef:' \
   || fail "api Deployment does not mount the ConfigMap via envFrom"

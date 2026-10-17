@@ -189,8 +189,8 @@ func TestClassifyProduct_FirstIsCreatedThenReplaced(t *testing.T) {
 
 func TestClassifyProduct_ConfirmingALegacyClassificationIsAReplacement(t *testing.T) {
 	h := newHarness()
-	p := h.registered("SKU-1")
-	p.ImportLegacyClassification(mustClassification([]product.HandlingTag{product.Fragile}, "", 0), t0)
+	c := mustClassification([]product.HandlingTag{product.Fragile}, "", 0)
+	p := product.Rehydrate(product.SKU("SKU-1"), "desc", &c, product.SourceLegacyImport, product.PhysicalProfile{}, 2)
 	h.repo.put(p)
 	res, err := (&usecases.ClassifyProduct{Writer: h.writer}).Handle(context.Background(), usecases.ClassifyProductCommand{SKU: "SKU-1", HandlingTags: []string{"Fragile"}})
 	if err != nil {
