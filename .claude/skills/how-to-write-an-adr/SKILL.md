@@ -52,7 +52,7 @@ The `## Decision` section is the part worth the most editing effort: see
 states the exact mechanism (a staged strangler migration over event-carried
 state transfer), names the consumer group env var, the dedupe and the
 "never overwrite a native classification" rule, and is specific enough that
-`internal/adapters/inbound/kafka/legacy_importer.go` was built straight
+the legacy importer (since retired at stage E) was built straight
 from it.
 
 ## Superseding an earlier ADR

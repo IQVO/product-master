@@ -114,10 +114,11 @@ hardcoded `localhost:9092` fails CI).
 ### 1. Never import the sibling's Go packages
 
 This service knows a sibling's topic name, its exact CloudEvents `type`
-strings and payload shape ONLY — never its Go types. See
-`internal/adapters/inbound/kafka/legacy_importer.go`: it knows inventory-storage's
-`LegacyTopic` and `TypeLegacyProductClassified` and a hand-mirrored
-snake_case payload, nothing else. Hand-mirror the payload struct locally; do not add a Go module
+strings and payload shape ONLY — never its Go types. The same holds for
+this repo's own consumer, `internal/adapters/inbound/kafka/analytics_consumer.go`
+(the ADR 0003 legacy importer that used to be the model was retired at stage
+E): it knows a topic, full `type` strings and a hand-mirrored snake_case
+payload, nothing else. Hand-mirror the payload struct locally; do not add a Go module
 dependency on the sibling repo (an architecture fitness test in most
 repos in this fleet would catch that anyway for the stricter contexts —
 check this repo's own `internal/architecture/` for a
