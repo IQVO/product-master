@@ -104,7 +104,8 @@ test per technology enforces it (`TestKafkaIntegrationTestsUseTestcontainers`,
 package through a helper (`startPostgresPool` in
 `internal/adapters/outbound/postgres/helper_integration_test.go` runs
 `tcpostgres.Run` -> `ConnectionString` -> migrate -> pool -> `t.Cleanup`). See
-`internal/adapters/inbound/kafka/legacy_importer_integration_test.go` and
+`internal/adapters/inbound/kafka/analytics_consumer_integration_test.go`
+(shared broker helpers in `kafka_itest_helpers_test.go`) and
 `internal/adapters/outbound/outbox/relay_integration_test.go`
 for the working Kafka recipe (unique topic per test, explicit
 `CreateTopics` + wait for the partition leader before the first

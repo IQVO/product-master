@@ -74,12 +74,11 @@ Omits: consumers, because no sibling consumes the physical-profile events yet
 ## 3. Migration: legacy classifications flow in, product-master's flow out
 
 Stage A and B of [ADR 0003](/docs/adr/0003-migration-from-inventory-storage):
-the importer runs (`LEGACY_IMPORT_CONSUMER_GROUP` set) and an operator runs
-inventory-storage's one-shot backfill command. In the kind cluster the
-importer runs with group `product-master-legacy-import`
-(warehouse-infra `helm-values/product-master.yaml`), and the backfill was run
-once on 2026-10-07 (6 rows). Stage E (removing the importer and the legacy
-type) has not been run.
+the importer ran (`LEGACY_IMPORT_CONSUMER_GROUP` set, group
+`product-master-legacy-import`) and an operator ran inventory-storage's
+one-shot backfill command, once on 2026-10-07 (6 rows). Stage E was executed
+on 2026-10-17: the importer, `LEGACY_IMPORT_CONSUMER_GROUP` and the legacy
+type are removed. The diagram below is the migration record.
 
 ```mermaid
 sequenceDiagram

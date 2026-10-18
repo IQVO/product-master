@@ -62,14 +62,11 @@ Payload rules:
 - A breaking payload change is a new `.v2` type and dataschema, never a
   mutation of v1.
 
-### Consumed (migration only, ADR 0003)
+### Consumed
 
-| type | topic | consumer group env |
-|---|---|---|
-| `com.warehouse.wms.inventory-storage.product.ProductClassified` | `warehouse.inventory.events` | `LEGACY_IMPORT_CONSUMER_GROUP` |
-
-Every other type on that topic is ignored. A message that is not a valid
-CloudEvent is logged and skipped, never retried forever.
+Nothing. The ADR 0003 legacy importer (`LEGACY_IMPORT_CONSUMER_GROUP`,
+inventory-storage's migration-only `ProductClassified`) was removed at stage
+E (2026-10-17).
 
 ### Published on `warehouse.product-master.analytics` (ADR 0006)
 

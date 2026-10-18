@@ -99,9 +99,8 @@ resources:
 # default so nothing changes replica behaviour silently. When enabled, the
 # Deployment's replicaCount is omitted so the HPA is the sole owner of
 # .spec.replicas. N>1 is safe for the outbox relay (FOR UPDATE SKIP LOCKED),
-# the version-guarded product writes (concurrent-modification on conflict) and
-# the legacy importer (one stable consumer group, dedupe on the CloudEvents id
-# in the same transaction); it has not been load-tested. mcp deliberately has
+# the version-guarded product writes (concurrent-modification on conflict);
+# it has not been load-tested. mcp deliberately has
 # no block here: the MCP Streamable-HTTP handler keeps per-process session
 # state and the mcp Service has no session affinity (see mcp: below).
 autoscaling:
@@ -135,13 +134,6 @@ config:
   # outbox_events (attempts, last_error) until an operator re-arms it with
   # `UPDATE outbox_events SET attempts = 0 WHERE id = ...`. 0 = unlimited.
   outboxMaxAttempts: 20
-  # LEGACY_IMPORT_CONSUMER_GROUP: the consumer group of the ADR 0003 legacy
-  # classification importer (reads inventory-storage's
-  # warehouse.inventory.events). Empty = not rendered and the importer is
-  # NOT started. Use a STABLE id so a rescheduled pod resumes from its
-  # committed offsets. Requires kafka.enabled=true (the binary refuses to
-  # boot without KAFKA_BROKERS; the chart refuses to render).
-  legacyImportConsumerGroup: ""
   # SHUTDOWN_DRAIN_DELAY: wait after /readyz flips before closing the
   # listener. Empty = not rendered; the binary defaults to 5s.
   shutdownDrainDelay: ""
@@ -162,9 +154,8 @@ database:
   migrationsExistingSecretKey: "MIGRATIONS_DATABASE_URL"
 
 # KAFKA_BROKERS is only set in the api container env when kafka.enabled is
-# true. Without it EVENT_PUBLISHER must stay "log" and the legacy importer
-# cannot run. Produced topic: warehouse.product-master.events; consumed (legacy
-# importer only): warehouse.inventory.events.
+# true. Without it EVENT_PUBLISHER must stay "log". Produced topic:
+# warehouse.product-master.events.
 kafka:
   enabled: false
   brokers: "kafka:9092"
@@ -208,8 +199,7 @@ readinessProbe:
   periodSeconds: 5
 
 # Room for the binary's graceful shutdown: SHUTDOWN_DRAIN_DELAY (default 5s)
-# + HTTP drain (10s) + legacy importer drain (10s) + outbox relay drain (10s),
-# sequential, worst case ~35s.
+# + HTTP drain (10s) + outbox relay drain (10s), sequential, worst case ~25s.
 terminationGracePeriodSeconds: 40
 
 # --- MCP server (docs/adr/0005) ---

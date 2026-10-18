@@ -195,7 +195,7 @@ func TestNoAuthMiddlewareReintroduced(t *testing.T) {
 
 // groupIDLiteralRE matches a kafka-go ReaderConfig's GroupID field being
 // assigned a bare double-quoted string literal, e.g. `GroupID: "my-group"`.
-// A symbol reference (`GroupID: groupID` fed from LEGACY_IMPORT_CONSUMER_GROUP
+// A symbol reference (`GroupID: groupID` fed from an env-supplied variable
 // or ANALYTICS_CONSUMER_GROUP, `GroupID: uniqueConsumerGroup()`) never
 // matches this.
 var groupIDLiteralRE = regexp.MustCompile(`GroupID:\s*"[^"]+"`)
@@ -228,7 +228,7 @@ func TestKafkaConsumerGroupNeverHardcodedInline(t *testing.T) {
 			lineNo++
 			line := scanner.Text()
 			if groupIDLiteralRE.MatchString(line) {
-				t.Errorf("%s:%d: GroupID assigned an inline string literal: %q — use a named const/var or a function call (see the legacy importer's env-supplied group, LEGACY_IMPORT_CONSUMER_GROUP, or the projector's defaultConsumerGroup const in cmd/product-projector/main.go) so the group id's lifetime/uniqueness reasoning is traceable and a locally-run process can never silently join a live cluster's group", path, lineNo, strings.TrimSpace(line))
+				t.Errorf("%s:%d: GroupID assigned an inline string literal: %q — use a named const/var or a function call (see the projector's defaultConsumerGroup const in cmd/product-projector/main.go) so the group id's lifetime/uniqueness reasoning is traceable and a locally-run process can never silently join a live cluster's group", path, lineNo, strings.TrimSpace(line))
 			}
 		}
 		f.Close()

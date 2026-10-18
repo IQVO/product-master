@@ -109,43 +109,6 @@ func TestStartOutboxRelay_ConfigErrors(t *testing.T) {
 	}
 }
 
-func TestStartLegacyImporter(t *testing.T) {
-	ad, closeFn, err := buildAdapters(context.Background(), "", quietLogger())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer closeFn()
-
-	t.Setenv("LEGACY_IMPORT_CONSUMER_GROUP", "")
-	w, stop, err := startLegacyImporter(ad, quietLogger())
-	if err != nil || w != nil {
-		t.Fatalf("unset group: worker=%v err=%v, want not started", w, err)
-	}
-	stop()
-
-	t.Setenv("LEGACY_IMPORT_CONSUMER_GROUP", "product-master-legacy-import")
-	t.Setenv("KAFKA_BROKERS", "")
-	if _, _, err := startLegacyImporter(ad, quietLogger()); err == nil {
-		t.Fatal("a group without KAFKA_BROKERS must be a config error")
-	}
-
-	t.Setenv("KAFKA_BROKERS", "127.0.0.1:1")
-	start := time.Now()
-	w, stop, err = startLegacyImporter(ad, quietLogger())
-	if err != nil || w == nil {
-		t.Fatalf("start: %v", err)
-	}
-	if time.Since(start) > time.Second {
-		t.Fatal("starting the importer must not dial Kafka")
-	}
-	stop()
-	select {
-	case <-w.done:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the importer did not stop")
-	}
-}
-
 func TestBuildAdapters_InMemoryWiresEveryPort(t *testing.T) {
 	ad, closeFn, err := buildAdapters(context.Background(), "", quietLogger())
 	if err != nil {

@@ -157,17 +157,6 @@ kafka.enabled is true -- so that combination would crash-loop. Fail at render.
 {{- end -}}
 
 {{/*
-LEGACY_IMPORT_CONSUMER_GROUP without KAFKA_BROKERS makes the binary refuse to
-boot (cmd/api startLegacyImporter). Fail at render instead of crash-looping.
-*/}}
-{{- define "product-master.requireKafkaForLegacyImport" -}}
-{{- if and .Values.config.legacyImportConsumerGroup (not .Values.kafka.enabled) -}}
-{{- fail "config.legacyImportConsumerGroup is set but kafka.enabled is false — the binary exits at boot (LEGACY_IMPORT_CONSUMER_GROUP requires KAFKA_BROKERS). Set kafka.enabled=true and kafka.brokers." -}}
-{{- end -}}
-{{- end -}}
-
-
-{{/*
 Comma-joined names of this chart's enabled KongPlugins, for the
 konghq.com/plugins annotation on every HTTPRoute this chart renders.
 Empty string (annotation omitted) when none are enabled — standalone

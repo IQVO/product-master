@@ -72,16 +72,13 @@ No "unclassify" event exists.
 
 | Full CloudEvents type | Topic | Producer | Fields used | Effect | Consumer, group env, DLQ |
 | --- | --- | --- | --- | --- | --- |
-| `com.warehouse.wms.inventory-storage.product.ProductClassified` | `warehouse.inventory.events` | `inventory-storage` (since its ADR 0034 only the one-shot backfill command emits it) | `sku`, `handling_tags`, `temperature_class`, `dot_hazard_class`; CloudEvents `id` | `ImportLegacyClassification`: register an unknown SKU, set the classification with source `legacy-import` unless the current one is `native` | `LegacyImporter`, `LEGACY_IMPORT_CONSUMER_GROUP` (unset = off), no DLQ: deterministic failures are skipped, transient ones retried in place |
 
 The consumer decodes with `cloudevents.Decode`, dispatches on the full `type`,
 ignores every other type on the topic, and dedupes on the CloudEvents `id` in
-`processed_events` inside the same unit of work as the effect. It is removed at
-ADR 0003 stage E.
+`processed_events` inside the same unit of work as the effect.
 
 Source: `internal/domain/product/events.go`,
 `internal/adapters/outbound/kafka/encoder.go`,
-`internal/adapters/inbound/kafka/legacy_importer.go`, `kafka.go`,
-`internal/application/usecases/import_legacy_classification.go`,
+`internal/adapters/inbound/kafka/kafka.go`,
 `cmd/api/main.go`, `apis/asyncapi.yaml`; the consumers' code on their
 `develop` branches (see [Downstream consumers](/docs/ecosystem/downstream-consumers)).

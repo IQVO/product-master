@@ -1,6 +1,6 @@
 // Command api is product-master's composition root: it wires env config
-// into adapters, adapters into use cases, and use cases into the HTTP router,
-// the legacy importer (ADR 0003) and the outbox relay.
+// into adapters, adapters into use cases, and use cases into the HTTP router
+// and the outbox relay.
 //
 // Environment:
 //
@@ -8,10 +8,9 @@
 //	DATABASE_URL                  Postgres DSN; unset = in-memory adapters
 //	MIGRATIONS_DATABASE_URL       direct DSN for the boot migrations (default DATABASE_URL)
 //	EVENT_PUBLISHER               kafka | log (default log)
-//	KAFKA_BROKERS                 comma-separated brokers (EVENT_PUBLISHER=kafka, importer)
+//	KAFKA_BROKERS                 comma-separated brokers (EVENT_PUBLISHER=kafka)
 //	OUTBOX_RELAY_INTERVAL         relay poll interval (Go duration or seconds, default 1s)
 //	OUTBOX_MAX_ATTEMPTS           failures before the relay excludes a row (default 20, 0 = unlimited)
-//	LEGACY_IMPORT_CONSUMER_GROUP  stable group of the legacy importer; unset = not started
 //	OTEL_EXPORTER_OTLP_ENDPOINT   OTLP/gRPC collector (default localhost:4317)
 //	SHUTDOWN_DRAIN_DELAY          wait after flipping /readyz before closing (default 5s)
 //	LOG_LEVEL, SERVICE_VERSION, ENVIRONMENT, CORS_ALLOWED_ORIGINS
@@ -31,7 +30,6 @@ import (
 	"time"
 
 	inboundhttp "github.com/claudioed/product-master/internal/adapters/inbound/http"
-	inboundkafka "github.com/claudioed/product-master/internal/adapters/inbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/outbound/clock"
 	outboundkafka "github.com/claudioed/product-master/internal/adapters/outbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
@@ -46,8 +44,8 @@ import (
 // shutdownTimeout bounds the HTTP server's graceful drain.
 const shutdownTimeout = 10 * time.Second
 
-// workerDrainTimeout bounds how long shutdown waits for the importer and the
-// relay to return after their context is cancelled.
+// workerDrainTimeout bounds how long shutdown waits for the relay to return
+// after its context is cancelled.
 const workerDrainTimeout = 10 * time.Second
 
 // DefaultShutdownDrainDelay is how long shutdown waits, after flipping
@@ -97,16 +95,11 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	importer, closeImporter, err := startLegacyImporter(ad, logger)
-	if err != nil {
-		return err
-	}
 	relay, closeRelay, err := startOutboxRelay(ad.outboxStore, logger)
 	if err != nil {
-		closeImporter()
 		return err
 	}
-	return serveUntilSignal(logger, httpServer, readiness, importer, closeImporter, relay, closeRelay)
+	return serveUntilSignal(logger, httpServer, readiness, relay, closeRelay)
 }
 
 // adapters is the set of outbound adapters the composition root wires.
@@ -189,38 +182,6 @@ func migrationsDatabaseURL(databaseURL string) string {
 type worker struct {
 	name string
 	done chan struct{}
-}
-
-// startLegacyImporter starts the ADR 0003 importer only when
-// LEGACY_IMPORT_CONSUMER_GROUP is set (it then needs KAFKA_BROKERS). The
-// reader dials lazily inside Run, so a broker outage never blocks boot.
-func startLegacyImporter(ad adapters, logger *slog.Logger) (*worker, func(), error) {
-	group := os.Getenv("LEGACY_IMPORT_CONSUMER_GROUP")
-	if group == "" {
-		logger.Info("LEGACY_IMPORT_CONSUMER_GROUP not set; legacy classification importer not started")
-		return nil, func() {}, nil
-	}
-	raw := os.Getenv("KAFKA_BROKERS")
-	if raw == "" {
-		return nil, nil, errors.New("LEGACY_IMPORT_CONSUMER_GROUP requires KAFKA_BROKERS")
-	}
-	brokers := strings.Split(raw, ",")
-	importUC := &usecases.ImportLegacyClassification{Writer: ad.writer(), ProcessedEvents: ad.processed}
-	consumer := inboundkafka.NewLegacyImporter(brokers, group, importUC, logger)
-
-	ctx, stop := context.WithCancel(context.Background())
-	w := &worker{name: "legacy-importer", done: make(chan struct{})}
-	go func() {
-		defer close(w.done)
-		logger.Info("legacy classification importer running", "topic", inboundkafka.LegacyTopic, "group_id", group, "brokers", brokers)
-		if err := consumer.Run(ctx); !errors.Is(err, context.Canceled) {
-			logger.Error("legacy classification importer stopped", "error", err)
-		}
-	}()
-	return w, func() {
-		stop()
-		_ = consumer.Close()
-	}, nil
 }
 
 // Event publisher modes (EVENT_PUBLISHER).
@@ -321,11 +282,11 @@ func startOutboxRelay(store outboxrelay.Store, logger *slog.Logger) (*worker, fu
 
 // serveUntilSignal runs httpServer until SIGINT/SIGTERM (or a listen error),
 // then shuts down in the fleet order: (1) /readyz flips to 503, (2) wait the
-// drain delay, (3) drain HTTP, (4) stop and await the importer (an outbox
-// writer), (5) stop and await the relay LAST so nothing committed above is
-// stranded; the caller's deferred pool.Close runs after all of it.
+// drain delay, (3) drain HTTP, (4) stop and await the relay LAST so nothing
+// committed above is stranded; the caller's deferred pool.Close runs after
+// all of it.
 func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness,
-	importer *worker, closeImporter func(), relay *worker, closeRelay func(),
+	relay *worker, closeRelay func(),
 ) error {
 	errCh := make(chan error, 1)
 	go func() {
@@ -339,7 +300,6 @@ func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *i
 	defer stop()
 	select {
 	case err := <-errCh:
-		closeImporter()
 		closeRelay()
 		return err
 	case <-ctx.Done():
@@ -354,8 +314,6 @@ func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *i
 	defer cancel()
 	err := httpServer.Shutdown(shutdownCtx)
 
-	closeImporter()
-	await(logger, importer)
 	closeRelay()
 	await(logger, relay)
 	return err

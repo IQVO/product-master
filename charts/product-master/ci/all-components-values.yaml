@@ -4,7 +4,6 @@ database:
 config:
   eventPublisher: "kafka"
   outboxRelayInterval: "500ms"
-  legacyImportConsumerGroup: "product-master-legacy-import"
   shutdownDrainDelay: "5s"
   corsAllowedOrigins: "http://localhost:5173"
 kafka:

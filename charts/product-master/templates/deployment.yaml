@@ -1,6 +1,5 @@
 {{- include "product-master.requireDatabase" . -}}
 {{- include "product-master.requireKafkaForPublisher" . -}}
-{{- include "product-master.requireKafkaForLegacyImport" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,7 +50,7 @@ spec:
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           # D14 (2026-10-12): every config.* value (OUTBOX_RELAY_INTERVAL,
-          # OUTBOX_MAX_ATTEMPTS, SHUTDOWN_DRAIN_DELAY, LEGACY_IMPORT_CONSUMER_GROUP,
+          # OUTBOX_MAX_ATTEMPTS, SHUTDOWN_DRAIN_DELAY,
           # CORS_ALLOWED_ORIGINS, ...) reaches cmd/api through the chart
           # ConfigMap. The explicit `env` entries below win over envFrom for the
           # same key and carry the same values, so nothing changes for the
@@ -79,14 +78,6 @@ spec:
             # failures (0 = unlimited).
             - name: OUTBOX_MAX_ATTEMPTS
               value: {{ .Values.config.outboxMaxAttempts | quote }}
-            {{- with .Values.config.legacyImportConsumerGroup }}
-            # ADR 0003 legacy classification importer. The consumer group id
-            # comes from values, never a literal: a stable id is what makes a
-            # rescheduled pod resume from its committed offsets. Absent while
-            # empty, which keeps the importer OFF.
-            - name: LEGACY_IMPORT_CONSUMER_GROUP
-              value: {{ . | quote }}
-            {{- end }}
             {{- with .Values.config.shutdownDrainDelay }}
             - name: SHUTDOWN_DRAIN_DELAY
               value: {{ . | quote }}

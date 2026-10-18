@@ -55,16 +55,11 @@ alters nothing raises no event.
 out-of-order delivery harmless. Payloads are full state per concern, so a
 consumer overwrites, it never merges.
 
-## Consumed (migration only)
+## Consumed
 
-| Type | Topic | Producer | Consumer group env var |
-| --- | --- | --- | --- |
-| `com.warehouse.wms.inventory-storage.product.ProductClassified` | `warehouse.inventory.events` | inventory-storage | `LEGACY_IMPORT_CONSUMER_GROUP` (unset = importer not started) |
-
-Every other type on that topic is ignored; a message that is not a valid
-CloudEvent is logged and skipped. The importer is removed at migration stage E
-([ADR 0003](/docs/adr/0003-migration-from-inventory-storage)). Details on
-[Upstream contracts](/docs/ecosystem/upstream-contracts).
+Nothing. The ADR 0003 migration importer (`LEGACY_IMPORT_CONSUMER_GROUP`,
+inventory-storage's legacy `ProductClassified`) was removed at stage E
+(2026-10-17).
 
 ## Analytics stream (ADR 0006)
 
