@@ -4,27 +4,27 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	inboundmcp "github.com/claudioed/product-master/internal/adapters/inbound/mcp"
+	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
 )
 
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-// newTestServer wires the binary exactly as run() does, over the in-memory
-// repository selected by an empty DATABASE_URL, behind the real router.
+// newTestServer wires the binary's router and MCP handler over the in-memory
+// product repository, a TEST DOUBLE: the binary itself has no in-memory path
+// (depsFor takes any ports.ProductRepository).
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	deps, closeFn, err := buildDeps(context.Background(), quietLogger(), "", "")
-	if err != nil {
-		t.Fatalf("buildDeps: %v", err)
-	}
-	t.Cleanup(closeFn)
+	deps := depsFor(memory.NewProductRepo())
 	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(deps))))
 	t.Cleanup(srv.Close)
 	return srv
@@ -113,12 +113,47 @@ func TestNoAuthIsRequired(t *testing.T) {
 }
 
 // An unreachable database is a boot error after the bounded retries, never
-// a silent fallback to the in-memory repository.
+// a silent fallback to another store.
 func TestBuildDeps_BadDatabaseFailsBoot(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // a cancelled context makes bootretry give up at once
 	if _, _, err := buildDeps(ctx, quietLogger(), "postgres://u@127.0.0.1:1/db", "postgres://u@127.0.0.1:1/db"); err == nil {
 		t.Fatal("an unreachable database must fail boot")
+	}
+}
+
+// DATABASE_URL is mandatory: there is no in-memory repository to fall back
+// to, and the error names the variable.
+func TestBuildDeps_RefusesAnEmptyDatabaseURL(t *testing.T) {
+	_, closeFn, err := buildDeps(context.Background(), quietLogger(), "", "")
+	if err == nil || !strings.Contains(err.Error(), "DATABASE_URL is required") {
+		t.Fatalf("buildDeps with no DATABASE_URL = %v, want a boot error naming it", err)
+	}
+	closeFn()
+}
+
+// run fails fast on a missing DATABASE_URL: before telemetry, any connection
+// and before the listener binds.
+func TestRun_FailsFastWithoutDatabaseURLBeforeBinding(t *testing.T) {
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	_ = l.Close()
+	t.Setenv("DATABASE_URL", "")
+	t.Setenv("MCP_ADDR", addr)
+
+	start := time.Now()
+	if err := run(); err == nil || !strings.Contains(err.Error(), "DATABASE_URL is required") {
+		t.Fatalf("run = %v, want a boot error naming DATABASE_URL", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatal("a configuration error must not wait on any dependency")
+	}
+	if c, derr := (&net.Dialer{Timeout: 200 * time.Millisecond}).DialContext(t.Context(), "tcp", addr); derr == nil {
+		_ = c.Close()
+		t.Fatal("the listener was bound although DATABASE_URL is missing")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -13,13 +14,15 @@ import (
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
 func TestLoadConfig_Defaults(t *testing.T) {
-	c, err := loadConfig(env(map[string]string{"ANALYTICS_DATABASE_URL": "postgres://u@h/db", "KAFKA_BROKERS": "k1:9092, k2:9092,,"}))
+	c, err := loadConfig(env(map[string]string{
+		"ANALYTICS_DATABASE_URL": "postgres://u@h/db", "KAFKA_BROKERS": "k1:9092, k2:9092,,", "ANALYTICS_CONSUMER_GROUP": "g",
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := config{
 		analyticsURL: "postgres://u@h/db", brokers: []string{"k1:9092", "k2:9092"},
-		group: "product-master-analytics", adminAddr: ":8091", logLevel: "info",
+		group: "g", adminAddr: ":8091", logLevel: "info",
 	}
 	if !reflect.DeepEqual(c, want) {
 		t.Fatalf("config = %+v, want %+v", c, want)
@@ -40,13 +43,22 @@ func TestLoadConfig_EnvironmentOverridesEverything(t *testing.T) {
 }
 
 func TestLoadConfig_RequiresTheAnalyticalDatabaseAndKafka(t *testing.T) {
-	if _, err := loadConfig(env(map[string]string{"KAFKA_BROKERS": "k:9092"})); !errors.Is(err, errMissingAnalyticsURL) {
+	if _, err := loadConfig(env(map[string]string{"KAFKA_BROKERS": "k:9092", "ANALYTICS_CONSUMER_GROUP": "g"})); !errors.Is(err, errMissingAnalyticsURL) {
 		t.Fatalf("err = %v", err)
 	}
 	for _, brokers := range []string{"", " , "} {
-		if _, err := loadConfig(env(map[string]string{"ANALYTICS_DATABASE_URL": "postgres://u@h/db", "KAFKA_BROKERS": brokers})); !errors.Is(err, errMissingBrokers) {
+		if _, err := loadConfig(env(map[string]string{"ANALYTICS_DATABASE_URL": "postgres://u@h/db", "KAFKA_BROKERS": brokers, "ANALYTICS_CONSUMER_GROUP": "g"})); !errors.Is(err, errMissingBrokers) {
 			t.Fatalf("brokers %q: err = %v", brokers, err)
 		}
+	}
+}
+
+// The consumer group has no default: a projector without ANALYTICS_CONSUMER_GROUP
+// is a boot error naming the variable.
+func TestLoadConfig_RequiresTheConsumerGroup(t *testing.T) {
+	_, err := loadConfig(env(map[string]string{"ANALYTICS_DATABASE_URL": "postgres://u@h/db", "KAFKA_BROKERS": "k:9092"}))
+	if !errors.Is(err, errMissingGroup) || !strings.Contains(err.Error(), "ANALYTICS_CONSUMER_GROUP is required") {
+		t.Fatalf("err = %v, want the missing-group boot error naming ANALYTICS_CONSUMER_GROUP", err)
 	}
 }
 
