@@ -9,78 +9,77 @@ import (
 	kafkago "github.com/segmentio/kafka-go"
 )
 
-type fakeMetadata struct {
-	resp *kafkago.MetadataResponse
-	err  error
-	req  *kafkago.MetadataRequest
+type fakeLister struct {
+	brokers []kafkago.Broker
+	err     error
+	calls   int
 }
 
-func (f *fakeMetadata) Metadata(_ context.Context, req *kafkago.MetadataRequest) (*kafkago.MetadataResponse, error) {
-	f.req = req
-	return f.resp, f.err
+func (f *fakeLister) Brokers(context.Context) ([]kafkago.Broker, error) {
+	f.calls++
+	return f.brokers, f.err
 }
 
-func answering(topics ...kafkago.Topic) *kafkago.MetadataResponse {
-	return &kafkago.MetadataResponse{Brokers: []kafkago.Broker{{ID: 1, Host: "b", Port: 9092}}, Topics: topics}
-}
+func oneBroker() []kafkago.Broker { return []kafkago.Broker{{ID: 1, Host: "b", Port: 9092}} }
 
 func TestBrokerCheckPassesWhenABrokerAnswers(t *testing.T) {
-	f := &fakeMetadata{resp: answering()}
-	if err := NewBrokerCheckWithClient(f).Check(context.Background()); err != nil {
+	if err := NewBrokerCheckWithLister(&fakeLister{brokers: oneBroker()}).Check(context.Background()); err != nil {
 		t.Fatalf("check = %v", err)
-	}
-}
-
-// The request must name no topics: an empty, NON-nil list (a nil list is the
-// null that means "all topics").
-func TestBrokerCheckAsksForNoTopics(t *testing.T) {
-	f := &fakeMetadata{resp: answering()}
-	if err := NewBrokerCheckWithClient(f).Check(context.Background()); err != nil {
-		t.Fatalf("check = %v", err)
-	}
-	if f.req == nil || f.req.Topics == nil || len(f.req.Topics) != 0 {
-		t.Fatalf("request topics = %#v, want an empty non-nil list", f.req)
 	}
 }
 
 func TestBrokerCheckFailsWhenTheBrokerIsUnreachable(t *testing.T) {
 	boom := errors.New("connection refused")
-	err := NewBrokerCheckWithClient(&fakeMetadata{err: boom}).Check(context.Background())
+	err := NewBrokerCheckWithLister(&fakeLister{err: boom}).Check(context.Background())
 	if !errors.Is(err, boom) {
 		t.Fatalf("check = %v, want the cause wrapped", err)
 	}
 }
 
-// A broker address nobody listens on (the real kafka-go client, no fake) is
-// not ready, and fails fast instead of hanging.
-func TestBrokerCheckAgainstADeadAddressIsNotReady(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := NewBrokerCheck([]string{"127.0.0.1:1"}).Check(ctx); err == nil {
-		t.Fatal("a dead broker address must fail the check")
-	}
-}
-
 func TestBrokerCheckFailsWhenTheAnswerListsNoBroker(t *testing.T) {
-	for name, resp := range map[string]*kafkago.MetadataResponse{
-		"nil answer":      nil,
-		"no broker given": {},
-	} {
-		if err := NewBrokerCheckWithClient(&fakeMetadata{resp: resp}).Check(context.Background()); err == nil {
+	for name, brokers := range map[string][]kafkago.Broker{"nil list": nil, "empty list": {}} {
+		if err := NewBrokerCheckWithLister(&fakeLister{brokers: brokers}).Check(context.Background()); err == nil {
 			t.Errorf("%s: a metadata answer without a broker must fail the check", name)
 		}
 	}
 }
 
-// Missing topics are NOT a readiness failure: the broker auto-creates them on
-// first write.
-func TestBrokerCheckIgnoresMissingAndLeaderlessTopics(t *testing.T) {
-	missing := kafkago.Topic{Name: "missing", Error: kafkago.UnknownTopicOrPartition}
-	noLeader := kafkago.Topic{Name: "orphan", Partitions: []kafkago.Partition{{ID: 3, Leader: kafkago.Broker{ID: -1}}}}
-	empty := kafkago.Topic{Name: "empty"}
-	f := &fakeMetadata{resp: answering(missing, noLeader, empty)}
-	if err := NewBrokerCheckWithClient(f).Check(context.Background()); err != nil {
-		t.Fatalf("topics missing must still be ready, got %v", err)
+// The check asks the lister on EVERY call: there is no cache behind it (the
+// readiness gate caches the verdict, not this).
+func TestBrokerCheckAsksTheLiveBrokerEveryTime(t *testing.T) {
+	f := &fakeLister{brokers: oneBroker()}
+	c := NewBrokerCheckWithLister(f)
+	for range 3 {
+		if err := c.Check(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.err = errors.New("gone")
+	if err := c.Check(context.Background()); err == nil {
+		t.Fatal("a broker that went away after earlier successes must fail the check")
+	}
+	if f.calls != 4 {
+		t.Fatalf("lister asked %d times, want 4", f.calls)
+	}
+}
+
+// A broker address nobody listens on (the real dialer, no fake) is not
+// ready, and fails fast instead of hanging.
+func TestBrokerCheckAgainstADeadAddressIsNotReady(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	if err := NewBrokerCheck([]string{"127.0.0.1:1"}).Check(ctx); err == nil {
+		t.Fatal("a dead broker address must fail the check")
+	}
+	if time.Since(start) > 4*time.Second {
+		t.Fatal("a dead address must fail fast")
+	}
+}
+
+func TestBrokerCheckWithNoAddressFails(t *testing.T) {
+	if err := NewBrokerCheck(nil).Check(context.Background()); err == nil {
+		t.Fatal("no broker address must fail the check")
 	}
 }
 
