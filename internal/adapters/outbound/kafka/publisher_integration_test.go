@@ -250,3 +250,38 @@ func assertClassifiedPayload(t *testing.T, msg kafkago.Message) {
 		t.Fatalf("ProductClassified data = %+v", data)
 	}
 }
+
+// Against a REAL broker: a broker that answers makes the readiness check
+// pass while the service's topics do not exist, and asking creates no topic.
+func TestBrokerCheck_RealKafka_NeedsNoTopicAndCreatesNone(t *testing.T) {
+	brokers := startPublisherKafka(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	check := outboundkafka.NewBrokerCheck(brokers)
+	for range 3 { // every call is a fresh round trip
+		if err := check.Check(ctx); err != nil {
+			t.Fatalf("a live broker must pass the check: %v", err)
+		}
+	}
+	for _, topic := range []string{outboundkafka.Topic, outboundkafka.AnalyticsTopic} {
+		resp, err := (&kafkago.Client{Addr: kafkago.TCP(brokers...)}).Metadata(ctx, &kafkago.MetadataRequest{Topics: []string{topic}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tp := range resp.Topics {
+			if tp.Name == topic && tp.Error == nil {
+				t.Fatalf("topic %s exists: the readiness check must never create topics", topic)
+			}
+		}
+	}
+}
+
+// Nothing listens on port 1: the check is not ready.
+func TestBrokerCheck_ClosedPortIsNotReady(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := outboundkafka.NewBrokerCheck([]string{"127.0.0.1:1"}).Check(ctx); err == nil {
+		t.Fatal("a closed port must fail the check")
+	}
+}

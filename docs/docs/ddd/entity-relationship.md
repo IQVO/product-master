@@ -12,8 +12,8 @@ The final OLTP schema after applying every migration in order. This service has
 golang-migrate (`postgres.RunMigrations`, over `MIGRATIONS_DATABASE_URL` when
 set) from `internal/adapters/outbound/postgres/migrations/`. There is a single
 migration so far, `0001_products_outbox`. golang-migrate keeps its own
-`schema_migrations` table. Without `DATABASE_URL` the service runs on the
-in-memory adapters and persists nothing.
+`schema_migrations` table. `DATABASE_URL` is mandatory: there is no in-memory
+mode ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)).
 
 ## OLTP database
 

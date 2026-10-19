@@ -74,16 +74,16 @@ in its own image (`web/Dockerfile`).
 
 | Process | Role | Port |
 | --- | --- | --- |
-| `cmd/api` | REST API, the outbox relay, and (when `LEGACY_IMPORT_CONSUMER_GROUP` is set) the legacy classification importer | `:8080` (`HTTP_ADDR`) |
+| `cmd/api` | REST API and the outbox relay | `:8080` (`HTTP_ADDR`) |
 | `cmd/mcp` | Read-only MCP server, Streamable HTTP at `/` and `/mcp`, four tools over the same database; no writes, no relay, no Kafka ([ADR 0005](/docs/adr/0005-mcp-server-adoption)) | `:8090` (`MCP_ADDR`) |
 | `cmd/product-projector` | Consumes `warehouse.product-master.analytics` into the separate analytical database ([ADR 0006](/docs/adr/0006-analytics-read-side)) | admin `:8091` |
 | `cmd/product-reports` | Read-only `GET /reports/master-data-quality` and `GET /reports/freshness` over the analytical database | `:8092` |
 | `web/` (`productmaster_mfe`) | Module Federation remote mounted by the warehouse-console shell; calls the REST API | nginx; dev `:5191` |
 
-`cmd/api` wires Postgres when `DATABASE_URL` is set (running the embedded
-migrations first) and in-memory adapters otherwise; the relay publishes to
-Kafka with `EVENT_PUBLISHER=kafka` and only logs each message otherwise
-(`cmd/api/main.go`). See [Runtime and integration mechanics](/docs/overview/runtime).
+`cmd/api` wires Postgres (running the embedded migrations first) and publishes
+the outbox to Kafka; it exits at boot without `DATABASE_URL` or `KAFKA_BROKERS`
+and has no in-memory or log-sink mode ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime);
+`cmd/api/{config,adapters,relay,main}.go`). See [Runtime and integration mechanics](/docs/overview/runtime).
 
 ### Deployed (kind cluster)
 

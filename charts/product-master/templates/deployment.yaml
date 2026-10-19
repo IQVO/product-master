@@ -1,5 +1,7 @@
 {{- include "product-master.requireDatabase" . -}}
-{{- include "product-master.requireKafkaForPublisher" . -}}
+{{- include "product-master.requireKafka" . -}}
+{{- include "product-master.requireGracePeriod" . -}}
+{{- include "product-master.requireNoModeEnv" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -112,10 +114,8 @@ spec:
                   key: {{ .Values.database.migrationsExistingSecretKey }}
                   optional: true
             {{- end }}
-            {{- if .Values.kafka.enabled }}
             - name: KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | quote }}
-            {{- end }}
             {{- range .Values.extraEnv }}
             - {{ toYaml . | nindent 14 | trim }}
             {{- end }}

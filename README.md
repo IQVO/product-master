@@ -63,7 +63,7 @@ image:
 
 | Surface | How to reach it | Notes |
 |---|---|---|
-| REST API (`cmd/api`) | `http://localhost:8000/api/product-master/*` through Kong (strips the prefix) | `EVENT_PUBLISHER=kafka`; the legacy importer runs with group `product-master-legacy-import` |
+| REST API (`cmd/api`) | `http://localhost:8000/api/product-master/*` through Kong (strips the prefix) | runs on real Postgres and Kafka only (ADR 0010); `/readyz` checks both |
 | Console remote (`web/`, `productmaster_mfe`) | `http://localhost/mfes/product-master/` (web gateway); the console shell mounts it at `/product-master/*` (warehouse-console #66) | calls the REST API above |
 | MCP server (`cmd/mcp`) | in-cluster only: `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp` | read by `warehouse-ops-agent` (its ADR 0020, `PRODUCT_MASTER_MCP_ENDPOINT`) |
 | Analytics projector (`cmd/product-projector`) | in-cluster only | group `product-master-analytics`, database `product_master_analytics` |
@@ -84,12 +84,12 @@ in Kafka mode); see `docs/docs/ecosystem/downstream-consumers.md`.
 ## Running locally
 
 ```bash
-go run ./cmd/api          # :8080, in-memory without DATABASE_URL, events logged without a broker
+DATABASE_URL=... KAFKA_BROKERS=... go run ./cmd/api   # :8080; both are mandatory (ADR 0010), the process exits at boot without them
 make check-fast           # quick gate
 make check-all            # full local gate
 make integration          # testcontainers Postgres + Kafka (Docker only; also the CI `integration` job)
-go run ./cmd/mcp          # :8090, read-only MCP server (Streamable HTTP) over the same database
-go run ./cmd/product-projector  # :8091 admin; needs ANALYTICS_DATABASE_URL + KAFKA_BROKERS (ADR 0006)
+DATABASE_URL=... go run ./cmd/mcp   # :8090, read-only MCP server (Streamable HTTP) over the same database; DATABASE_URL is mandatory
+go run ./cmd/product-projector  # :8091 admin; needs ANALYTICS_DATABASE_URL + KAFKA_BROKERS + ANALYTICS_CONSUMER_GROUP (ADR 0006)
 go run ./cmd/product-reports    # :8092, read-only reports; needs ANALYTICS_DATABASE_URL
 ```
 
@@ -124,10 +124,11 @@ and `GET /reports/freshness` read-only. Details:
   (`analytics.enabled`) and an optional `frontend` component, all off by
   default. Each Service selects exactly one
   Deployment (`charts/product-master/tests/test_service_selectors.py`).
-  Chart values cover `EVENT_PUBLISHER`, `KAFKA_BROKERS`,
-  `OUTBOX_RELAY_INTERVAL`, `OUTBOX_MAX_ATTEMPTS` (relay attempt cap, ADR 0007)
-  and `LEGACY_IMPORT_CONSUMER_GROUP`; the api Deployment mounts the chart
-  ConfigMap via `envFrom` (`charts/product-master/tests/render_test.sh`).
+  `database.*` and `kafka.brokers` are required (the render fails naming
+  the value, ADR 0010); chart values also cover `EVENT_PUBLISHER` (only `kafka`),
+  `OUTBOX_RELAY_INTERVAL` and `OUTBOX_MAX_ATTEMPTS` (relay attempt cap, ADR 0007);
+  the api Deployment mounts the chart ConfigMap via `envFrom`
+  (`charts/product-master/tests/render_test.sh`).
 - Docs site: `cd docs && npm ci && npm run build`.
 
 Scaffolded from [warehouse-harness-template](https://github.com/IQVO/warehouse-harness-template).

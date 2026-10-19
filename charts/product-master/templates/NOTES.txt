@@ -24,17 +24,9 @@ MCP server (read-only tools, Streamable HTTP, no auth):
   http://{{ include "product-master.mcpFullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcp.service.port }}/mcp
 {{- end }}
 
-{{- if eq .Values.config.eventPublisher "kafka" }}
-
-config.eventPublisher is "kafka" — Product events are relayed from the
-transactional outbox onto warehouse.product-master.events ({{ .Values.kafka.brokers }}).
-{{- else }}
-
-NOTE: config.eventPublisher is "log" (the default) — outbox rows are drained
-to the log sink, nothing reaches warehouse.product-master.events.
-{{- end }}
-{{- if .Values.config.legacyImportConsumerGroup }}
-
-The ADR 0003 legacy classification importer is ON (group
-{{ .Values.config.legacyImportConsumerGroup }}, topic warehouse.inventory.events).
-{{- end }}
+Runtime: real Postgres and real Kafka only (ADR 0010). Product events are
+relayed from the transactional outbox onto warehouse.product-master.events and
+warehouse.product-master.analytics ({{ .Values.kafka.brokers }}); the broker
+auto-creates the topics on the first write and /readyz does not depend on them.
+/readyz is 200 only while Postgres answers a ping and a Kafka broker answers a
+metadata request.

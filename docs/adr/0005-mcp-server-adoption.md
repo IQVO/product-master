@@ -4,6 +4,10 @@
 
 Accepted (2026-10-07).
 
+Amended by [ADR 0010](./0010-postgres-and-kafka-are-the-only-runtime.md): the
+"in-memory when `DATABASE_URL` is unset" fallback below no longer exists;
+`cmd/mcp` exits at boot without `DATABASE_URL`.
+
 ## Context
 
 The fleet exposes every bounded context to `warehouse-ops-agent` (and any
