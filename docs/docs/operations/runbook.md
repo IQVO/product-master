@@ -211,8 +211,8 @@ topic without a leader is retried up to 40 times, 250 ms apart.
   broker answers a broker-list request (fresh connection; no topic is needed or
   created). A failing dependency returns `503` `problem+json`
   (`dependency-unavailable`, detail naming `postgres` or `kafka`); the verdict
-  is cached 3 s and one round is bounded to 2 s. It also flips to `503
-  {"status":"not_ready"}` as the first step of shutdown. `/healthz` never checks
+  is cached 3 s and one round is bounded to 2 s. During shutdown it flips first to
+  `503` `{"status":"not_ready"}`. `/healthz` never checks
   a dependency, so an outage takes the pod out of the Service but never restarts
   it.
 - `cmd/api` shutdown order on SIGTERM: flip `/readyz`, wait
