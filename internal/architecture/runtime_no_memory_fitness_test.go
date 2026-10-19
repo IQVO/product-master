@@ -73,7 +73,7 @@ func runtimeBinaryViolation(finding string) string {
 		"lets a misconfigured deployment boot \"healthy\" with no outbox relay, no consumers and no idempotency, "+
 		"and silently lose events.\n"+
 		"  FIX:     wire the Postgres/Kafka adapters instead; if the code you need is a clock or an id generator it "+
-		"lives in internal/adapters/outbound/system. The memory adapters stay in tests (unit and BDD). "+
+		"lives in internal/adapters/outbound/clock. The memory adapters stay in tests (unit and BDD). "+
 		"Do NOT loosen this test.\n", finding)
 }
 
@@ -115,7 +115,7 @@ func TestRuntimeBinarySensorBites(t *testing.T) {
 		{"the production adapters pass", `package main
 import (
 	"example.com/svc/internal/adapters/outbound/postgres"
-	"example.com/svc/internal/adapters/outbound/system"
+	"example.com/svc/internal/adapters/outbound/clock"
 )`, 0},
 		{"a look-alike path passes", "package main\nimport \"example.com/svc/internal/adapters/outbound/memorystore\"", 0},
 		{"a comment that names the package passes", "package main\n// the memory adapters (internal/adapters/outbound/memory) are test doubles\nimport \"fmt\"\nvar _ = fmt.Sprint", 0},
