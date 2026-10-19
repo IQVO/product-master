@@ -233,18 +233,14 @@ sequenceDiagram
   autonumber
   participant Rel as outbox.Relay in cmd/api
   participant DB as OutboxRepo, outbox_events
-  participant S as RelaySink or LogSink
+  participant S as RelaySink
   participant K as Kafka warehouse.product-master.events
   loop every OUTBOX_RELAY_INTERVAL, default 1s, or at once after a full batch
     Rel->>DB: Drain(limit 100)
     DB->>DB: BEGIN, SELECT unpublished AND attempts below OUTBOX_MAX_ATTEMPTS ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED
     loop each row in id order
       DB->>S: Send(message)
-      alt EVENT_PUBLISHER kafka
-        S->>K: WriteMessages key SKU, value CloudEvent, content-type header, RequireAll acks
-      else log
-        Note over S: logs topic, type, subject, id
-      end
+      S->>K: WriteMessages key SKU, value CloudEvent, content-type header, RequireAll acks
       alt send failed
         DB->>DB: attempts plus 1, last_error, COMMIT what was already sent, stop the pass
         Note over Rel: error logged, retried after the interval with the same CloudEvents id, at the attempt cap logged once at ERROR and excluded (ADR 0007)
@@ -256,9 +252,9 @@ sequenceDiagram
   end
 ```
 
-Source: `internal/adapters/outbound/outbox/relay.go` (`Run`, `RelayOnce`,
-`LogSink`), `internal/adapters/outbound/postgres/outbox_repository.go`
+Source: `internal/adapters/outbound/outbox/relay.go` (`Run`, `RelayOnce`),
+`internal/adapters/outbound/postgres/outbox_repository.go`
 (`Drain`, `claim`), `internal/adapters/outbound/kafka/relay_sink.go`,
-`cmd/api/main.go` (`startOutboxRelay`).
-Omits: the in-memory `OutboxRepo.Drain` used without `DATABASE_URL`, and the
+`cmd/api/relay.go` (`startOutboxRelay`).
+Omits: the in-memory `OutboxRepo.Drain` (a test double), and the
 shutdown order (the relay stops last).

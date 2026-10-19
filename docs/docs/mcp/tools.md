@@ -20,7 +20,7 @@ use case wired at all, so it can never change data or insert into the outbox.
 | SDK | `github.com/modelcontextprotocol/go-sdk` v1.8.0 | `go.mod` |
 | Auth | none (fleet-wide); access control is the in-cluster ClusterIP Service | `cmd/mcp/main.go` |
 | Health | `GET /healthz` returns `{"status":"ok"}` | `cmd/mcp/router.go` |
-| Data | the OLTP database (`DATABASE_URL`); without it an empty in-memory repository | `cmd/mcp/main.go` |
+| Data | the OLTP database (`DATABASE_URL`, mandatory: the binary exits at boot without it, [ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)) | `cmd/mcp/main.go` |
 | In the kind cluster | `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, read by warehouse-ops-agent (`PRODUCT_MASTER_MCP_ENDPOINT`) | README, warehouse-infra |
 
 At `initialize` the server sends instructions telling the client that nothing
@@ -59,7 +59,7 @@ as the last segment of the REST problem `type`
 | `product-classification-not-found` | `get_product_classification` on an unclassified product |
 | `internal-error` | anything else (database failure); the real error is logged as `mcp tool failed with an unexpected error` and never returned |
 
-Example captured from a local run against an empty in-memory repository:
+Example for a SKU that does not exist (captured from a test over an empty repository double):
 
 ```json
 {"content":[{"type":"text","text":"product-not-found: product not found"}],"isError":true}

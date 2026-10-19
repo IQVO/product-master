@@ -41,11 +41,13 @@ the remote through the Nginx web gateway at
 `http://localhost/mfes/product-master/`. MCP and the reports API are
 in-cluster only.
 
-The chart refuses to render when no database is configured
-(`product-master.requireDatabase`), when `config.eventPublisher=kafka` or a
-legacy import group is set without `kafka.enabled`
-(`requireKafkaForPublisher`, `requireKafkaForLegacyImport`), and when
-`analytics.enabled` lacks Kafka or a DSN source (`requireAnalyticsConfig`).
+The chart refuses to render, naming the value, when no database is configured
+(`product-master.requireDatabase`), when `kafka.brokers` is empty, when
+`config.eventPublisher` is not `kafka`, when `kafka.enabled=false`, when a
+`*_MODE` variable is injected through `extraEnv`, when the grace period is
+under 25 s (`requireKafka`, `requireNoModeEnv`, `requireGracePeriod`), and when
+`analytics.enabled` lacks a DSN source or a consumer group
+(`requireAnalyticsConfig`; [ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)).
 `charts/product-master/tests/test_service_selectors.py` checks that every
 Service selects exactly one Deployment.
 
@@ -121,7 +123,7 @@ Source: `cmd/api/main.go`, `internal/application/usecases/writer.go`,
 
 | Topic | Direction | Who | Consumer group | Key | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `warehouse.product-master.events` | produced | outbox relay in `cmd/api` (`EVENT_PUBLISHER=kafka`) | n/a | SKU | Published Language: five `com.warehouse.wms.product-master.product.*` types, CloudEvents 1.0 structured mode. |
+| `warehouse.product-master.events` | produced | outbox relay in `cmd/api` (always on) | n/a | SKU | Published Language: five `com.warehouse.wms.product-master.product.*` types, CloudEvents 1.0 structured mode. |
 | `warehouse.product-master.analytics` | produced | outbox relay in `cmd/api` | n/a | SKU | Same five events, same CloudEvents `id`, dataschema `urn:warehouse:product-master:analytics:<EventName>:v1`. |
 | `warehouse.product-master.analytics` | consumed | `cmd/product-projector` | `ANALYTICS_CONSUMER_GROUP` (default `product-master-analytics`) | | At-least-once; offsets committed only after the event is applied or dead-lettered. |
 | `warehouse.product-master.analytics.dlq` | produced | `cmd/product-projector` | n/a | original key | Poison messages, raw and unmodified, plus `x-dlq-*` headers. |
@@ -158,8 +160,9 @@ from the host).
   `attempts` and `last_error`) until re-armed (below). There is no outbox
   dead-letter topic: the table is the inspectable store.
 - Delivery is at-least-once with a stable `id`: consumers deduplicate on it.
-- With `EVENT_PUBLISHER=log` (the default) rows are logged and marked
-  published, so nothing accumulates but nothing reaches Kafka either.
+- There is no log sink: a row stays unpublished until Kafka accepts it, so a
+  broker outage shows up as a growing backlog (query below) and as `/readyz`
+  naming `kafka`, not as silently dropped events.
 
 Check the backlog:
 
@@ -193,7 +196,6 @@ greater than the one they hold, so a late, older version is ignored.
 | Consumer | Deterministic failure | Transient failure | DLQ |
 | --- | --- | --- | --- |
 | Projector (`AnalyticsConsumer`) | Not a CloudEvent: skipped, rate-limited WARN (one per minute with a suppressed count). Unknown type: ignored. Known type with an unusable payload, or a store rejection (SQLSTATE class 22 or 23): dead-lettered, then committed past. | Same message retried with backoff 200 ms doubling to 5 s, offset not committed; never dead-lettered. | `warehouse.product-master.analytics.dlq` |
-| Legacy importer (`LegacyImporter`) | Not a CloudEvent, other type, malformed payload or invalid classification: WARN and committed past. | Same message retried with the same backoff until it succeeds or the process stops. | none |
 
 Dead-lettered messages carry the original key, value and headers plus
 `x-dlq-source-topic`, `x-dlq-source-partition`, `x-dlq-source-offset`,
@@ -204,14 +206,19 @@ topic without a leader is retried up to 40 times, 250 ms apart.
 ## Readiness and shutdown
 
 - `cmd/api` opens its listener only after migrations and the Postgres ping
-  succeeded, so `/healthz` answering means the adapters are wired. `/readyz`
-  returns `200 {"status":"ready"}` from then on and does **not** re-check
-  Postgres or Kafka; it flips to `503 {"status":"not_ready"}` only as the first
-  step of shutdown.
+  succeeded, so `/healthz` answering means the adapters are wired. `/readyz` is
+  `200 {"status":"ready"}` only while Postgres answers a ping and a Kafka
+  broker answers a broker-list request (fresh connection; no topic is needed or
+  created). A failing dependency returns `503` `problem+json`
+  (`dependency-unavailable`, detail naming `postgres` or `kafka`); the verdict
+  is cached 3 s and one round is bounded to 2 s. It also flips to `503
+  {"status":"not_ready"}` as the first step of shutdown. `/healthz` never checks
+  a dependency, so an outage takes the pod out of the Service but never restarts
+  it.
 - `cmd/api` shutdown order on SIGTERM: flip `/readyz`, wait
-  `SHUTDOWN_DRAIN_DELAY` (5s), drain HTTP (10s), stop and await the legacy
-  importer (10s), stop and await the relay last (10s), close the pool. The
-  chart's `terminationGracePeriodSeconds` is 40.
+  `SHUTDOWN_DRAIN_DELAY` (5s), drain HTTP (10s), stop and await the relay
+  (10s), close the pool. The chart's `terminationGracePeriodSeconds` is 40
+  (the chart refuses less than 25).
 - `cmd/product-projector` serves `/readyz` on its admin port, flips it first
   on SIGTERM, drains the admin server, then lets the consumer finish the
   message in flight (bounded by 10s). If the consumer loop stops on its own,
@@ -307,12 +314,6 @@ message on `warehouse.product-master.analytics.dlq`, fix the cause (a payload
 that does not match `apis/asyncapi.yaml`, or an analytical schema problem), then
 produce the original value back to `warehouse.product-master.analytics` with
 the same key. The event id makes a second application harmless.
-
-### Start or stop the legacy importer
-
-Set or clear `config.legacyImportConsumerGroup`. Unset, the importer is not
-started; set, it resumes from the group's committed offsets. Keep the id
-stable.
 
 ### Rotate database credentials
 

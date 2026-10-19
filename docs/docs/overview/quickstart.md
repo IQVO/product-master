@@ -58,17 +58,19 @@ go run ./cmd/api   # listens on :8080
 (`internal/adapters/outbound/postgres/migrations`) on every start, so the
 tables `products`, `outbox_events` and `processed_events` appear on the first
 boot. Nothing else needs to be applied by hand. Without `DATABASE_URL` or
-`KAFKA_BROKERS` it exits before binding the port:
+`KAFKA_BROKERS` it exits with status 1 before binding the port, reporting every
+missing variable at once:
 
 ```text
-DATABASE_URL is required: this context runs on real Postgres
-KAFKA_BROKERS is required: this context runs on real Kafka
+{"level":"ERROR","msg":"service exited with error","error":"invalid configuration: DATABASE_URL is required: this context runs on real Postgres\nKAFKA_BROKERS is required: this context runs on real Kafka"}
 ```
 
-The relay line confirms the sink:
+The boot logs confirm the wiring:
 
 ```text
-{"level":"INFO","msg":"outbox relay running","publisher":"kafka","interval":1000000000,"topics":["warehouse.product-master.events","warehouse.product-master.analytics"]}
+{"level":"INFO","msg":"postgres adapters configured"}
+{"level":"INFO","msg":"kafka topics","brokers":["localhost:9092"],"produces":["warehouse.product-master.events","warehouse.product-master.analytics"],"consumes":[],"note":"this service never creates topics; the broker auto-creates them on the first write and readiness does not depend on them"}
+{"level":"INFO","msg":"outbox relay running","interval":1000000000,"max_attempts":20,"brokers":["localhost:9092"],"topics":["warehouse.product-master.events","warehouse.product-master.analytics"]}
 ```
 
 Without an OpenTelemetry Collector on `localhost:4317` you will also see an
@@ -153,8 +155,8 @@ DATABASE_URL="$DATABASE_URL" go run ./cmd/mcp   # :8090, Streamable HTTP at / an
 ```
 
 Give it the same `DATABASE_URL` as `cmd/api`; without one it exits with
-`DATABASE_URL is required: this context runs on real Postgres`. A raw session
-with curl:
+`service exited with error` / `DATABASE_URL is required: this context runs on
+real Postgres`. A raw session with curl:
 
 ```bash
 curl -s -D - -X POST localhost:8090/mcp \
