@@ -1,4 +1,4 @@
-package main_test
+package features_test
 
 // Step definitions added by the second BDD coverage wave. They reuse the
 // world of features_test.go and only add what the new scenarios need:
