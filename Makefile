@@ -45,7 +45,7 @@ help:
 	@echo "  lint           golangci-lint run ./... (pinned $(GOLANGCI_VERSION) in CI)"
 	@echo "  test           go test ./... -race — unit + httptest + bdd, no DB needed"
 	@echo "  coverage       CI coverage command + the $(COVERAGE_THRESHOLD)% gate"
-	@echo "  integration    go test -tags=integration ./... -race -count=1"
+	@echo "  integration    go test -tags=integration ./... -race -count=1 -timeout 300s"
 	@echo "                 (testcontainers boots its own Postgres/Kafka; needs only Docker; not in check)"
 	@echo "  bdd            go test ./... -run TestFeatures -v — godog/Gherkin acceptance"
 	@echo "  arch-test      go test ./internal/architecture/... -v — hexagonal fitness"
@@ -108,7 +108,7 @@ coverage:
 # TestPostgresIntegrationTestsUseTestcontainers enforces it).
 # Deliberately NOT part of `check` / `check-all`.
 integration:
-	$(GO) test -tags=integration ./... -race -count=1
+	$(GO) test -tags=integration ./... -race -count=1 -timeout 300s
 
 bdd:
 	$(GO) test ./... -run TestFeatures -v
@@ -163,3 +163,4 @@ guide-lint: ## lint agent guides: skills load, references resolve, context budge
 
 harness-test: ## unit-test the agent hooks (pre/post/stop)
 	python3 scripts/harness/test_hook.py
+	python3 scripts/harness/test_red_issue.py

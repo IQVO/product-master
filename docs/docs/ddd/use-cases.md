@@ -49,4 +49,4 @@ folds events straight into `report.Projection`
 the reports server reads through `report.Reader`.
 
 Acceptance scenarios for every use case are in `features/*.feature`
-(godog, `features_test.go`).
+(godog, `features/features_test.go`).

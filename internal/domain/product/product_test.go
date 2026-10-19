@@ -117,57 +117,25 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-func TestImportLegacyClassification(t *testing.T) {
+func TestClassifyALegacyImportedProduct(t *testing.T) {
 	legacy := mustClassification(t, []HandlingTag{Hazmat}, NoTemperatureClass, 9)
 
-	t.Run("unclassified product takes the import", func(t *testing.T) {
-		p := registered(t)
-		e := onlyEvent(t, p.ImportLegacyClassification(legacy, t0)).(ProductClassified)
-		assertHeader(t, e, "ProductClassified", 2)
-		if e.Source != SourceLegacyImport {
-			t.Fatalf("source = %q", e.Source)
-		}
-		if _, src, _ := p.Classification(); src != SourceLegacyImport {
-			t.Fatalf("stored source = %q", src)
-		}
-	})
-
-	t.Run("identical legacy import is no change", func(t *testing.T) {
-		p := registered(t)
-		p.ImportLegacyClassification(legacy, t0)
-		if events := p.ImportLegacyClassification(legacy, t0); events != nil || p.Version() != 2 {
-			t.Fatalf("events=%v v=%d", events, p.Version())
-		}
-	})
-
-	t.Run("newer legacy import replaces a legacy one", func(t *testing.T) {
-		p := registered(t)
-		p.ImportLegacyClassification(legacy, t0)
-		other := mustClassification(t, []HandlingTag{Fragile}, NoTemperatureClass, NoDOTHazardClass)
-		assertHeader(t, onlyEvent(t, p.ImportLegacyClassification(other, t0)), "ProductClassified", 3)
-	})
-
-	t.Run("never overwrites a native classification", func(t *testing.T) {
-		p := registered(t)
-		native := mustClassification(t, []HandlingTag{Fragile}, NoTemperatureClass, NoDOTHazardClass)
-		if _, err := p.Classify(native, t0); err != nil {
+	t.Run("confirming a legacy-imported classification makes it native", func(t *testing.T) {
+		p := Rehydrate("SKU-1", "battery", &legacy, SourceLegacyImport, PhysicalProfile{}, 2)
+		events, err := p.Classify(legacy, t0)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if events := p.ImportLegacyClassification(legacy, t0); events != nil || p.Version() != 2 {
-			t.Fatalf("events=%v v=%d", events, p.Version())
-		}
-		if got, src, _ := p.Classification(); !got.Equal(native) || src != SourceNative {
-			t.Fatal("native classification overwritten")
-		}
-	})
-
-	t.Run("confirming a legacy classification makes it native", func(t *testing.T) {
-		p := registered(t)
-		p.ImportLegacyClassification(legacy, t0)
-		events, _ := p.Classify(legacy, t0)
 		e := onlyEvent(t, events).(ProductClassified)
 		if e.Source != SourceNative || e.Version != 3 {
 			t.Fatalf("event = %+v", e)
+		}
+	})
+
+	t.Run("an identical native classification is no change", func(t *testing.T) {
+		p := Rehydrate("SKU-1", "battery", &legacy, SourceNative, PhysicalProfile{}, 2)
+		if events, _ := p.Classify(legacy, t0); events != nil || p.Version() != 2 {
+			t.Fatalf("events=%v v=%d", events, p.Version())
 		}
 	})
 }

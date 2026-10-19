@@ -16,7 +16,7 @@
 //
 //	ANALYTICS_DATABASE_URL    analytical Postgres DSN, DIRECT (required)
 //	KAFKA_BROKERS             comma-separated brokers (required)
-//	ANALYTICS_CONSUMER_GROUP  fixed consumer group (default product-master-analytics)
+//	ANALYTICS_CONSUMER_GROUP  REQUIRED. Stable consumer group (no default)
 //	ADMIN_ADDR                /healthz and /readyz listen address (default :8091)
 //	LOG_LEVEL                 debug | info | warn (or warning) | error (default info)
 //	OTEL_EXPORTER_OTLP_ENDPOINT  OTLP/gRPC collector (default localhost:4317)
@@ -50,12 +50,6 @@ const (
 	// consumer loop to commit/dead-letter the message it was handling.
 	shutdownTimeout = 10 * time.Second
 
-	// defaultConsumerGroup is the projector's fixed group when
-	// ANALYTICS_CONSUMER_GROUP is unset (the chart always sets it): the fleet
-	// charter's `<ctx>-analytics` naming, distinct from the legacy importer's
-	// group.
-	defaultConsumerGroup = "product-master-analytics"
-
 	// projectorServiceName is the OTel service.name of this binary (ADR 0008).
 	projectorServiceName = "product-master-projector"
 )
@@ -72,6 +66,7 @@ type config struct {
 var (
 	errMissingAnalyticsURL = errors.New("ANALYTICS_DATABASE_URL is required: the projector writes only to the analytical database")
 	errMissingBrokers      = errors.New("KAFKA_BROKERS is required: the projector consumes the analytics topic")
+	errMissingGroup        = errors.New("ANALYTICS_CONSUMER_GROUP is required: a stable Kafka group id for the projector; there is no default")
 )
 
 // loadConfig reads the environment through getenv (os.Getenv in main).
@@ -84,7 +79,7 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	c := config{
 		analyticsURL: getenv("ANALYTICS_DATABASE_URL"),
-		group:        or("ANALYTICS_CONSUMER_GROUP", defaultConsumerGroup),
+		group:        getenv("ANALYTICS_CONSUMER_GROUP"),
 		adminAddr:    or("ADMIN_ADDR", ":8091"),
 		logLevel:     or("LOG_LEVEL", "info"),
 	}
@@ -98,6 +93,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if len(c.brokers) == 0 {
 		return config{}, errMissingBrokers
+	}
+	if c.group == "" {
+		return config{}, errMissingGroup
 	}
 	return c, nil
 }
@@ -177,7 +175,11 @@ func run() error {
 	shutdownErr := admin.Shutdown(ctx)
 	cancelConsumer()
 	select {
-	case <-consumerDone:
+	case err := <-consumerDone:
+		// Cancelled on purpose just above: only a real failure is worth a line.
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.Warn("analytics consumer stopped with an error during shutdown", "error", err)
+		}
 	case <-ctx.Done():
 		logger.Warn("analytics consumer did not stop before the shutdown deadline")
 	}

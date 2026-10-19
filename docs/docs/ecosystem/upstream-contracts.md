@@ -18,7 +18,7 @@ types are ignored.
 | --- | --- |
 | Topic | `warehouse.inventory.events` (`LegacyTopic` in `internal/adapters/inbound/kafka/legacy_importer.go`) |
 | Type | `com.warehouse.wms.inventory-storage.product.ProductClassified` (`TypeLegacyProductClassified`), byte-identical to inventory-storage's AsyncAPI |
-| Consumer group | env `LEGACY_IMPORT_CONSUMER_GROUP`; unset = importer not started (`startLegacyImporter` in `cmd/api/main.go`) |
+| Consumer group | was env `LEGACY_IMPORT_CONSUMER_GROUP` |
 | Fields used | `sku`, `handling_tags`, `temperature_class`, `dot_hazard_class` (`legacyClassifiedData`, restated here, never imported from that service) |
 | Idempotency | claim of the CloudEvents `id` in `processed_events` under consumer `legacy-classification-importer`, in the same unit of work as the effect |
 | Effect | `ImportLegacyClassification`: register an unknown SKU (empty description) and set its classification with source `legacy-import`; skip when the current classification is `native`; no change when identical |
@@ -37,7 +37,8 @@ type `classification-moved`, a one-shot backfill command re-emits every row of
 its `product_classifications` table as the legacy event (stage B), and its
 `ProductMasterConsumer` applies this context's `ProductClassified` to that
 table as a local copy (stage C). The legacy type is therefore emitted only by
-that backfill command until stage E.
+that backfill command, and the importer and the legacy type were both removed
+at stage E (2026-10-17). This section is kept as the migration record.
 
 ## Not consumed
 

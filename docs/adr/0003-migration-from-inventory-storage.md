@@ -92,6 +92,14 @@ remove product-master's legacy importer and `LEGACY_IMPORT_CONSUMER_GROUP`,
 and mark the inventory-storage `ProductClassified` type retired in
 warehouse-docs.
 
+**EXECUTED 2026-10-17**: every classification row of
+`inventory_storage.product_classifications` was verified present in
+product-master first (six SKUs missed by the importer were backfilled through
+the product-master REST API), then the importer, its chart value and the
+consumer-group env were removed here; inventory-storage's backfill command
+and legacy publisher go in its own PR; the warehouse-docs retirement note
+follows with the deploy.
+
 ### Runbook (first deployment)
 
 1. Deploy product-master with `LEGACY_IMPORT_CONSUMER_GROUP` set, then

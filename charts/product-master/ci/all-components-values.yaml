@@ -4,11 +4,9 @@ database:
 config:
   eventPublisher: "kafka"
   outboxRelayInterval: "500ms"
-  legacyImportConsumerGroup: "product-master-legacy-import"
   shutdownDrainDelay: "5s"
   corsAllowedOrigins: "http://localhost:5173"
 kafka:
-  enabled: true
   brokers: "kafka.warehouse-systems.svc.cluster.local:9092"
 gatewayApi:
   enabled: true

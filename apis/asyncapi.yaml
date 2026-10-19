@@ -35,10 +35,6 @@ info:
     to the integration payloads. Only this service's `product-projector`
     consumes it; it is not an integration contract.
 
-    **Consumed (migration only, ADR 0003).** inventory-storage's legacy
-    `ProductClassified` on `warehouse.inventory.events`, read by the legacy
-    importer when `LEGACY_IMPORT_CONSUMER_GROUP` is set.
-
     **Envelope (mandatory).** CloudEvents 1.0, structured content mode, Kafka
     header `content-type: application/cloudevents+json; charset=UTF-8`.
     Optional W3C trace-context headers (`traceparent`, and `tracestate` /
@@ -68,8 +64,6 @@ tags:
     description: The product-master bounded context (WMS subdomain).
   - name: product
     description: Events raised by the Product aggregate.
-  - name: consumed
-    description: Events produced by sibling contexts that this service consumes (migration only).
   - name: analytics
     description: This service's own analytics stream, consumed only by its projector (ADR 0006).
 
@@ -128,26 +122,6 @@ channels:
           - $ref: "#/components/messages/ProductClassifiedAnalytics"
           - $ref: "#/components/messages/ProductDimensionsDeclaredAnalytics"
           - $ref: "#/components/messages/ProductMeasuredAnalytics"
-
-  warehouse.inventory.events:
-    description: |
-      inventory-storage's integration topic. Consumed ONLY by the legacy
-      importer during the migration (ADR 0003), with a stable consumer group
-      read from env `LEGACY_IMPORT_CONSUMER_GROUP` (unset = not started). Every
-      type other than inventory-storage's `ProductClassified` is ignored.
-    publish:
-      operationId: consumeLegacyProductClassified
-      summary: Consume inventory-storage's legacy ProductClassified.
-      description: |
-        Imports a classification authored in inventory-storage. Unknown SKUs
-        are registered; a classification authored in product-master
-        (`classification_source=native`) is never overwritten. The CloudEvents
-        `id` claim and the effect commit in one transaction; the offset is
-        committed afterwards.
-      tags:
-        - name: consumed
-      message:
-        $ref: "#/components/messages/LegacyProductClassified"
 
 components:
   messages:
@@ -306,37 +280,6 @@ components:
               effective_source: "measured"
               discrepancy: true
               version: 5
-
-    LegacyProductClassified:
-      name: LegacyProductClassified
-      title: inventory-storage ProductClassified (legacy, consumed)
-      summary: inventory-storage's classification event, imported during the migration.
-      description: |
-        `type` = `com.warehouse.wms.inventory-storage.product.ProductClassified`,
-        source `/warehouse/inventory-storage`, dataschema
-        `urn:warehouse:inventory-storage:events:ProductClassified:v1`. Produced
-        by inventory-storage (its ADR 0031); retired by its ADR 0034.
-      contentType: application/cloudevents+json
-      tags:
-        - name: consumed
-      payload:
-        $ref: "#/components/schemas/LegacyProductClassifiedEvent"
-      examples:
-        - name: legacy
-          summary: A legacy hazmat classification.
-          payload:
-            specversion: "1.0"
-            id: "3c2b1a0f-9e8d-4c7b-a6f5-e4d3c2b1a0f9"
-            source: "/warehouse/inventory-storage"
-            type: "com.warehouse.wms.inventory-storage.product.ProductClassified"
-            subject: "SKU-9"
-            time: "2026-10-06T20:00:00Z"
-            datacontenttype: "application/json"
-            dataschema: "urn:warehouse:inventory-storage:events:ProductClassified:v1"
-            data:
-              sku: "SKU-9"
-              handling_tags: ["Hazmat"]
-              dot_hazard_class: 9
 
     ProductRegisteredAnalytics:
       name: ProductRegistered
@@ -582,18 +525,3 @@ components:
                 discrepancy: { type: boolean }
                 version: { type: integer, minimum: 1 }
 
-    LegacyProductClassifiedEvent:
-      allOf:
-        - $ref: "#/components/schemas/CloudEventEnvelope"
-        - type: object
-          properties:
-            data:
-              type: object
-              required: [sku, handling_tags]
-              properties:
-                sku: { type: string }
-                handling_tags:
-                  type: array
-                  items: { $ref: "#/components/schemas/HandlingTag" }
-                temperature_class: { type: string, enum: [Ambient, Chilled, Frozen] }
-                dot_hazard_class: { type: integer, minimum: 1, maximum: 9 }

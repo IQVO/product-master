@@ -114,10 +114,11 @@ hardcoded `localhost:9092` fails CI).
 ### 1. Never import the sibling's Go packages
 
 This service knows a sibling's topic name, its exact CloudEvents `type`
-strings and payload shape ONLY — never its Go types. See
-`internal/adapters/inbound/kafka/legacy_importer.go`: it knows inventory-storage's
-`LegacyTopic` and `TypeLegacyProductClassified` and a hand-mirrored
-snake_case payload, nothing else. Hand-mirror the payload struct locally; do not add a Go module
+strings and payload shape ONLY — never its Go types. The same holds for
+this repo's own consumer, `internal/adapters/inbound/kafka/analytics_consumer.go`
+(the ADR 0003 legacy importer that used to be the model was retired at stage
+E): it knows a topic, full `type` strings and a hand-mirrored snake_case
+payload, nothing else. Hand-mirror the payload struct locally; do not add a Go module
 dependency on the sibling repo (an architecture fitness test in most
 repos in this fleet would catch that anyway for the stricter contexts —
 check this repo's own `internal/architecture/` for a
@@ -166,7 +167,7 @@ when this consumer rebuilds a complete read model from a topic's FULL
 history on every start (an event-sourced local cache, not a work queue) —
 see inventory-storage's facility-cache consumer (`consumerGroupPrefix` +
 `uniqueConsumerGroup()`); product-master has no such consumer. Its legacy
-importer is Pattern A with the group from `LEGACY_IMPORT_CONSUMER_GROUP`. The group id MUST be unique per process instance
+consumer is Pattern A with the group from env (the retired ADR 0003 importer used `LEGACY_IMPORT_CONSUMER_GROUP`). The group id MUST be unique per process instance
 (hostname+PID+timestamp), NEVER a fixed shared string. Consumer group
 offsets are shared infrastructure state: a brand-new process joining a
 group an EARLIER instance already consumed resumes from that instance's

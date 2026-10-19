@@ -1,12 +1,11 @@
-package main_test
+package features_test
 
 // Step definitions added by the second BDD coverage wave. They reuse the
 // world of features_test.go and only add what the new scenarios need:
 // boundary-sized inputs, a measurement helper, event payload and envelope
-// assertions, the readiness gate, and further legacy-importer inputs.
+// assertions, and the readiness gate.
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,10 +13,8 @@ import (
 	"strings"
 	"time"
 
-	ce "github.com/cloudevents/sdk-go/v2/event"
 	"github.com/cucumber/godog"
 
-	inboundkafka "github.com/claudioed/product-master/internal/adapters/inbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/kafka/cloudevents"
 )
 
@@ -30,9 +27,6 @@ func registerWave2Steps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^the response content type is "([^"]*)"$`, w.theContentTypeIs)
 	sc.Step(`^the last published "([^"]*)" event data is '(.*)'$`, w.lastEventDataIs)
 	sc.Step(`^the last outbox message is a CloudEvent on topic "([^"]*)" keyed "([^"]*)" about "([^"]*)" at "([^"]*)" with data schema "([^"]*)"$`, w.lastMessageIs)
-
-	sc.Step(`^inventory-storage publishes a legacy classification of "([^"]*)" with tags "([^"]*)" and temperature class "([^"]*)"$`, w.legacyWithTemperature)
-	sc.Step(`^inventory-storage redelivers legacy event number (\d+)$`, w.redeliverLegacyNumber)
 }
 
 func (w *world) iSend(method, path, body string) error { return w.call(method, path, body) }
@@ -117,34 +111,4 @@ func (w *world) lastMessageIs(topic, key, subject, at, schema string) error {
 		}
 	}
 	return nil
-}
-
-// legacyWithTemperature publishes a legacy event that carries a temperature
-// class, which the shared legacyEvent builder does not.
-func (w *world) legacyWithTemperature(sku, tags, temperature string) error {
-	w.legacySeq++
-	e := ce.New(ce.CloudEventsVersionV1)
-	e.SetID(fmt.Sprintf("legacy-%d", w.legacySeq))
-	e.SetSource("/warehouse/inventory-storage")
-	e.SetType(inboundkafka.TypeLegacyProductClassified)
-	e.SetSubject(sku)
-	e.SetTime(bddNow)
-	data := map[string]any{"sku": sku, "handling_tags": splitList(tags), "temperature_class": temperature}
-	if err := e.SetData("application/json", data); err != nil {
-		return err
-	}
-	value, err := json.Marshal(e)
-	if err != nil {
-		return err
-	}
-	w.lastLegacy = value
-	w.legacyLog = append(w.legacyLog, value)
-	return w.importer.HandleMessage(context.Background(), value)
-}
-
-func (w *world) redeliverLegacyNumber(n int) error {
-	if n < 1 || n > len(w.legacyLog) {
-		return fmt.Errorf("no legacy event number %d (%d published)", n, len(w.legacyLog))
-	}
-	return w.importer.HandleMessage(context.Background(), w.legacyLog[n-1])
 }

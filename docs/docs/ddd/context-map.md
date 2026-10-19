@@ -38,7 +38,6 @@ flowchart LR
 Source: `docs/adr/0001-product-master-bounded-context.md` (Context map),
 `docs/adr/0003-migration-from-inventory-storage.md`,
 `docs/adr/0005-mcp-server-adoption.md`,
-`internal/adapters/inbound/kafka/legacy_importer.go`,
 `internal/adapters/outbound/kafka/encoder.go`, `cmd/api/main.go`,
 `cmd/mcp/main.go`, `web/vite.config.ts`; on the
 consumer side (all on `develop`) inventory-storage
@@ -60,9 +59,8 @@ edges readable; it is one context.
 | 2 | `product-master` | `order-management` | OHS + PL / local copy behind the `ProductClassificationLookup` port | same type | **Live** with `PRODUCT_CLASSIFICATION_MODE=kafka` (default `permissive`; the kind cluster runs `kafka`) | order-management ADR 0036 |
 | 3 | `product-master` | `wes-work-planning` | OHS + PL / local copy | same type | **Live** with `PRODUCT_CLASSIFICATION_MODE=kafka` (default `permissive`; the kind cluster runs `kafka`) | wes-work-planning ADR 0035 |
 | 4 | `product-master` | `fulfillment-execution` | OHS + PL / local copy | same type | **Live** with `PRODUCT_CLASSIFICATION_MODE=kafka` (default `permissive`; the kind cluster runs `kafka`) | fulfillment-execution ADR 0039 |
-| 5 | `inventory-storage` | `product-master` | legacy Published Language / **Conformist**: the importer takes inventory-storage's v1 payload field-for-field (`legacyClassifiedData`) | Kafka `warehouse.inventory.events`, `com.warehouse.wms.inventory-storage.product.ProductClassified` | **Migration only**, opt-in by `LEGACY_IMPORT_CONSUMER_GROUP`; removed at ADR 0003 stage E | `legacy_importer.go`, ADR 0003 |
-| 6 | `product-master` | `warehouse-ops-agent` | Open Host Service (read-only MCP, ADR 0005) / Conformist: a schema-pinned client of the four read tools (`get_product`, `list_products`, `get_product_classification`, `get_physical_profile`); its `find_master_data_gaps` tool and `GET /master-data-gaps` page through `list_products` | MCP Streamable HTTP, `product-master-mcp:8090/mcp` (`PRODUCT_MASTER_MCP_ENDPOINT`) | **Live** and deployed; unset endpoint = feature off | warehouse-ops-agent ADR 0020, `cmd/mcp/main.go` |
-| 7 | `product-master` | `warehouse-console` | this context ships its own UI, the `productmaster_mfe` Module Federation remote (`web/`); the console shell hosts it on `/product-master/*` behind a Product Master tile | Module Federation (`/mfes/product-master/`); the remote calls this context's REST API through Kong (`/api/product-master`) | **Live** and deployed | warehouse-console #66, `web/vite.config.ts`, `web/src/config.ts` |
+| 5 | `product-master` | `warehouse-ops-agent` | Open Host Service (read-only MCP, ADR 0005) / Conformist: a schema-pinned client of the four read tools (`get_product`, `list_products`, `get_product_classification`, `get_physical_profile`); its `find_master_data_gaps` tool and `GET /master-data-gaps` page through `list_products` | MCP Streamable HTTP, `product-master-mcp:8090/mcp` (`PRODUCT_MASTER_MCP_ENDPOINT`) | **Live** and deployed; unset endpoint = feature off | warehouse-ops-agent ADR 0020, `cmd/mcp/main.go` |
+| 6 | `product-master` | `warehouse-console` | this context ships its own UI, the `productmaster_mfe` Module Federation remote (`web/`); the console shell hosts it on `/product-master/*` behind a Product Master tile | Module Federation (`/mfes/product-master/`); the remote calls this context's REST API through Kong (`/api/product-master`) | **Live** and deployed | warehouse-console #66, `web/vite.config.ts`, `web/src/config.ts` |
 
 The other published types (`ProductRegistered`, `ProductDescriptionChanged`,
 `ProductDimensionsDeclared`, `ProductMeasured`) have no consumer yet.

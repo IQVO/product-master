@@ -18,9 +18,6 @@ data:
   OUTBOX_RELAY_INTERVAL: {{ . | quote }}
   {{- end }}
   OUTBOX_MAX_ATTEMPTS: {{ .Values.config.outboxMaxAttempts | quote }}
-  {{- with .Values.config.legacyImportConsumerGroup }}
-  LEGACY_IMPORT_CONSUMER_GROUP: {{ . | quote }}
-  {{- end }}
   {{- with .Values.config.shutdownDrainDelay }}
   SHUTDOWN_DRAIN_DELAY: {{ . | quote }}
   {{- end }}
@@ -30,6 +27,4 @@ data:
   {{- if .Values.otel.enabled }}
   OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.endpoint | quote }}
   {{- end }}
-  {{- if .Values.kafka.enabled }}
   KAFKA_BROKERS: {{ .Values.kafka.brokers | quote }}
-  {{- end }}

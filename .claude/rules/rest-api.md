@@ -17,7 +17,10 @@ Source of truth: `apis/openapi.yaml`. Keep this list in sync with it.
 - `PUT  /products/{sku}/dimensions/declared`  -> `DeclareDimensions` (200)
 - `PUT  /products/{sku}/dimensions/measured`  -> `RecordMeasurement` (200; 409 `stale-measurement`)
 - `GET  /products/{sku}/physical-profile`     -> `GetProduct` (physical part)
-- `GET  /healthz`, `GET /readyz` (503 while draining), `GET /metrics`
+- `GET  /healthz` (liveness only), `GET /readyz` (200 only when not draining AND
+  Postgres answers a ping AND a Kafka broker answers a topic-less metadata
+  request, cached 3 s, bounded 2 s; 503 `{"status":"not_ready"}` while draining,
+  503 `dependency-unavailable` problem naming `postgres`/`kafka` otherwise), `GET /metrics`
 
 ## Conventions
 
@@ -31,7 +34,8 @@ Source of truth: `apis/openapi.yaml`. Keep this list in sync with it.
   `dot-hazard-class-not-applicable`, `invalid-dimension`, `invalid-weight`,
   `measured-at-in-future`, `product-not-found`,
   `product-classification-not-found`, `stale-measurement`,
-  `concurrent-modification`, `internal-error`.
+  `concurrent-modification`, `internal-error`, `dependency-unavailable`
+  (503, `/readyz` only).
 - Request bodies reject unknown fields (`DisallowUnknownFields`).
 - Every write is an idempotent PUT; there is no resource-creating POST, so the
   fleet Idempotency-Key middleware does not apply. Do not add a POST without an ADR.

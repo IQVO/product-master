@@ -1,15 +1,15 @@
-// Package main_test hosts the godog (Cucumber for Go) acceptance suite. It
-// drives the REAL chi router over HTTP and the REAL legacy importer with the
-// in-memory adapters, wired the way cmd/api wires them, so every scenario in
-// features/*.feature is a black-box test of the service.
-package main_test
+// Package features_test hosts the godog (Cucumber for Go) acceptance suite.
+// It drives the REAL chi router over HTTP with the in-memory adapters (test
+// doubles; the shipped binary never imports them), wired the way cmd/api
+// wires the use cases, so every scenario in the *.feature files next to it
+// is a black-box test of the service.
+package features_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -17,24 +17,22 @@ import (
 	"testing"
 	"time"
 
-	ce "github.com/cloudevents/sdk-go/v2/event"
 	"github.com/cucumber/godog"
 
 	inboundhttp "github.com/claudioed/product-master/internal/adapters/inbound/http"
-	inboundkafka "github.com/claudioed/product-master/internal/adapters/inbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/kafka/cloudevents"
 	outboundkafka "github.com/claudioed/product-master/internal/adapters/outbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
 	"github.com/claudioed/product-master/internal/application/usecases"
 )
 
-// TestFeatures runs every Gherkin feature under features/.
+// TestFeatures runs every Gherkin feature in this directory.
 func TestFeatures(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: InitializeScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features"},
+			Paths:    []string{"."},
 			Strict:   true,
 			TestingT: t,
 		},
@@ -53,9 +51,8 @@ func (fixedClock) Now() time.Time { return bddNow }
 
 // world is the per-scenario state.
 type world struct {
-	server   *httptest.Server
-	outbox   *memory.OutboxRepo
-	importer *inboundkafka.LegacyImporter
+	server *httptest.Server
+	outbox *memory.OutboxRepo
 
 	readiness *inboundhttp.Readiness
 
@@ -63,10 +60,7 @@ type world struct {
 	body        []byte
 	contentType string
 
-	listQuery  string
-	legacySeq  int
-	lastLegacy []byte
-	legacyLog  [][]byte
+	listQuery string
 }
 
 func (w *world) start() {
@@ -87,12 +81,7 @@ func (w *world) start() {
 	}
 	w.server = httptest.NewServer(inboundhttp.NewRouter(s))
 	w.outbox = ob
-	w.importer = &inboundkafka.LegacyImporter{
-		Import: &usecases.ImportLegacyClassification{Writer: writer, ProcessedEvents: processed},
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-	}
-	w.status, w.body, w.listQuery, w.legacySeq, w.lastLegacy = 0, nil, "", 0, nil
-	w.legacyLog = nil
+	w.status, w.body, w.listQuery = 0, nil, ""
 }
 
 func (w *world) stop() {
@@ -322,46 +311,6 @@ func (w *world) theResponseFieldIsPresent(path string) error {
 
 func (w *world) thereIsNoNextPage() error { return w.theResponseFieldIsAbsent("nextCursor") }
 
-// legacyEvent builds the exact CloudEvent inventory-storage publishes.
-func (w *world) legacyEvent(sku, tags string, dot int) ([]byte, error) {
-	w.legacySeq++
-	data := map[string]any{"sku": sku, "handling_tags": splitList(tags)}
-	if dot != 0 {
-		data["dot_hazard_class"] = dot
-	}
-	e := ce.New(ce.CloudEventsVersionV1)
-	e.SetID(fmt.Sprintf("legacy-%d", w.legacySeq))
-	e.SetSource("/warehouse/inventory-storage")
-	e.SetType(inboundkafka.TypeLegacyProductClassified)
-	e.SetSubject(sku)
-	e.SetTime(bddNow)
-	e.SetDataSchema("urn:warehouse:inventory-storage:events:ProductClassified:v1")
-	if err := e.SetData("application/json", data); err != nil {
-		return nil, err
-	}
-	return json.Marshal(e)
-}
-
-func (w *world) publishLegacy(sku, tags string, dot int) error {
-	value, err := w.legacyEvent(sku, tags, dot)
-	if err != nil {
-		return err
-	}
-	w.lastLegacy = value
-	w.legacyLog = append(w.legacyLog, value)
-	return w.importer.HandleMessage(context.Background(), value)
-}
-
-func (w *world) legacyClassification(sku, tags string) error { return w.publishLegacy(sku, tags, 0) }
-
-func (w *world) legacyClassificationWithDOT(sku, tags string, dot int) error {
-	return w.publishLegacy(sku, tags, dot)
-}
-
-func (w *world) redeliverLegacy() error {
-	return w.importer.HandleMessage(context.Background(), w.lastLegacy)
-}
-
 // InitializeScenario registers every step.
 func InitializeScenario(sc *godog.ScenarioContext) {
 	w := &world{}
@@ -395,10 +344,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^the listed SKUs are "([^"]*)"$`, w.theListedSKUsAre)
 	sc.Step(`^there is a next page$`, w.thereIsANextPage)
 	sc.Step(`^there is no next page$`, w.thereIsNoNextPage)
-
-	sc.Step(`^inventory-storage publishes a legacy classification of "([^"]*)" with tags "([^"]*)"$`, w.legacyClassification)
-	sc.Step(`^inventory-storage publishes a legacy classification of "([^"]*)" with tags "([^"]*)" and DOT hazard class (\d+)$`, w.legacyClassificationWithDOT)
-	sc.Step(`^inventory-storage redelivers the same legacy event$`, w.redeliverLegacy)
 
 	registerWave2Steps(sc, w)
 }

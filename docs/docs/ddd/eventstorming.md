@@ -135,10 +135,9 @@ flowchart LR
   classDef hotspot fill:#e74c3c,stroke:#8e1f14,color:#fff
 ```
 
-Source: `internal/adapters/inbound/kafka/legacy_importer.go`,
-`internal/application/usecases/import_legacy_classification.go`,
-`internal/domain/product/product.go` (`ImportLegacyClassification`),
-ADR 0003 (stages A, B, E and Consequences).
+Source: ADR 0003 (stages A, B, E and Consequences); the importer and
+`ImportLegacyClassification` were removed at stage E (2026-10-17), this
+section is the migration record.
 Omits: the processed-event claim and the retry loop (see the
 [sequence diagrams](/docs/ddd/sequence-diagrams)).
 
@@ -147,12 +146,10 @@ Omits: the processed-event claim and the retry loop (see the
 | Sticky | Kind | Code evidence |
 | --- | --- | --- |
 | Master-data steward, dimensioning device, operator | Actor | REST callers of `internal/adapters/inbound/http/handlers.go` |
-| `RegisterProduct`, `ClassifyProduct`, `DeclareDimensions`, `RecordMeasurement`, `ImportLegacyClassification` | Command | `internal/application/usecases/*.go` |
+| `RegisterProduct`, `ClassifyProduct`, `DeclareDimensions`, `RecordMeasurement` | Command | `internal/application/usecases/*.go` |
 | `Product` | Aggregate | `internal/domain/product/product.go` |
 | `ProductRegistered`, `ProductDescriptionChanged`, `ProductClassified`, `ProductDimensionsDeclared`, `ProductMeasured` | Domain event (published) | `internal/domain/product/events.go`, `internal/adapters/outbound/kafka/encoder.go` |
-| legacy `ProductClassified` | Domain event (consumed) | `TypeLegacyProductClassified` in `legacy_importer.go` |
 | Publish every accepted change through the outbox | Policy | `Writer.persist` in `writer.go`, `outbox.Relay` |
-| Import unless native | Policy | `LegacyImporter.HandleMessage`, `Product.ImportLegacyClassification` |
 | Product, classification, physical profile, product list | Read model | `GetProduct`, `ListProducts` in `queries.go` |
 | inventory-storage, order-management, wes-work-planning, fulfillment-execution | External system | their `ProductClassified` consumers on `develop` |
 | Late classification before first stow | Hotspot | ADR 0001, Consequences |

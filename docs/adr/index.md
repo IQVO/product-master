@@ -23,6 +23,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0007](./0007-outbox-relay-attempt-cap.md) | Outbox relay attempt cap (`OUTBOX_MAX_ATTEMPTS`) | Accepted (2026-10-13) |
 | [0008](./0008-projector-telemetry-and-environment.md) | The analytics projector sets up telemetry; every backend Deployment sets ENVIRONMENT | Accepted (2026-10-13); additive |
 | [0009](./0009-trace-context-crosses-the-outbox.md) | The W3C trace context crosses the outbox to Kafka | Accepted (2026-10-13); additive |
+| [0010](./0010-postgres-and-kafka-are-the-only-runtime.md) | Postgres and Kafka are the only runtime (no in-memory mode, no log sink, real `/readyz`) | Accepted (2026-10-19) |
 
 ## Where each decision lives in the code
 
@@ -30,12 +31,13 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | --- | --- |
 | 0001 | `internal/domain/product` (the `Product` aggregate), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
 | 0002 | `internal/domain/product/physical.go` (declared, measured, effective, 10% discrepancy) |
-| 0003 | `internal/adapters/inbound/kafka/legacy_importer.go`, `internal/application/usecases/import_legacy_classification.go` |
+| 0003 | importer removed at stage E (2026-10-17); `internal/adapters/inbound/kafka/kafka.go` |
 | 0004 | `internal/adapters/kafka/cloudevents/cloudevents.go`, `internal/adapters/outbound/kafka/encoder.go` |
 | 0005 | `cmd/mcp`, `internal/adapters/inbound/mcp` |
 | 0006 | `cmd/product-projector`, `cmd/product-reports`, `internal/analytics/report`, `internal/adapters/outbound/analyticsstore`, `analytics/migrations` |
-| 0007 | `internal/adapters/outbound/outbox/relay.go` (`WithMaxAttempts`), `internal/adapters/outbound/postgres/outbox_repository.go` (`claim`), `cmd/api/main.go` (`outboxMaxAttempts`) |
+| 0007 | `internal/adapters/outbound/outbox/relay.go` (`WithMaxAttempts`), `internal/adapters/outbound/postgres/outbox_repository.go` (`claim`), `cmd/api/config.go` (`outboxMaxAttempts`) |
 | 0008 | `cmd/product-projector/main.go` (`setupTelemetry`), `charts/product-master/templates/{projector,reports}-deployment.yaml` |
 | 0009 | `internal/adapters/outbound/postgres/outbox_repository.go` (`Insert`, `traceHeaders`), `internal/adapters/outbound/kafka/relay_sink.go` |
+| 0010 | `cmd/api/{config,adapters,relay,main}.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `internal/adapters/inbound/http/readiness.go`, `internal/adapters/outbound/kafka/health.go`, `internal/architecture/runtime_no_memory_fitness_test.go`, `charts/product-master/templates/_helpers.tpl` |
 
 Back to the [documentation](/docs/intro).

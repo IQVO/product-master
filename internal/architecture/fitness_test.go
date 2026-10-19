@@ -195,7 +195,7 @@ func TestNoAuthMiddlewareReintroduced(t *testing.T) {
 
 // groupIDLiteralRE matches a kafka-go ReaderConfig's GroupID field being
 // assigned a bare double-quoted string literal, e.g. `GroupID: "my-group"`.
-// A symbol reference (`GroupID: groupID` fed from LEGACY_IMPORT_CONSUMER_GROUP
+// A symbol reference (`GroupID: groupID` fed from an env-supplied variable
 // or ANALYTICS_CONSUMER_GROUP, `GroupID: uniqueConsumerGroup()`) never
 // matches this.
 var groupIDLiteralRE = regexp.MustCompile(`GroupID:\s*"[^"]+"`)
@@ -207,15 +207,12 @@ var groupIDLiteralRE = regexp.MustCompile(`GroupID:\s*"[^"]+"`)
 // fleet Kafka broker — Kafka's rebalance protocol then handed the single
 // partition to only one of the two group members, silently starving
 // whichever process lost the race (fixed in wes-work-planning#67 by making
-// the group id env-configurable). This test doesn't ban long-lived named
-// consumer groups outright (the analytics projector's fixed group, the
-// defaultConsumerGroup const in cmd/product-projector/main.go overridable
-// through ANALYTICS_CONSUMER_GROUP, is a deliberate, correct exception: only
-// one projector instance consumes the analytics topic, and a stable id lets
-// a rescheduled pod resume from its committed offsets) -- it bans the shape that caused the
+// the group id env-configurable). This test bans the shape that caused the
 // incident: a GroupID assigned directly from an inline string literal
 // rather than through a named symbol (const, var, or function call) that
-// a reviewer can trace back to its definition and reasoning.
+// a reviewer can trace back to its definition and reasoning. Every consumer
+// group of this service comes from the environment with no default (the
+// analytics projector's ANALYTICS_CONSUMER_GROUP, ADR 0010).
 func TestKafkaConsumerGroupNeverHardcodedInline(t *testing.T) {
 	for _, path := range goFilesUnder(t, "..", false) {
 		f, err := os.Open(path)
@@ -228,7 +225,7 @@ func TestKafkaConsumerGroupNeverHardcodedInline(t *testing.T) {
 			lineNo++
 			line := scanner.Text()
 			if groupIDLiteralRE.MatchString(line) {
-				t.Errorf("%s:%d: GroupID assigned an inline string literal: %q — use a named const/var or a function call (see the legacy importer's env-supplied group, LEGACY_IMPORT_CONSUMER_GROUP, or the projector's defaultConsumerGroup const in cmd/product-projector/main.go) so the group id's lifetime/uniqueness reasoning is traceable and a locally-run process can never silently join a live cluster's group", path, lineNo, strings.TrimSpace(line))
+				t.Errorf("%s:%d: GroupID assigned an inline string literal: %q — use a named const/var or a function call (an env-supplied group such as the projector's ANALYTICS_CONSUMER_GROUP) so the group id's lifetime/uniqueness reasoning is traceable and a locally-run process can never silently join a live cluster's group", path, lineNo, strings.TrimSpace(line))
 			}
 		}
 		f.Close()

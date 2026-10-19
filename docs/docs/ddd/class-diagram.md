@@ -233,7 +233,6 @@ classDiagram
   class SystemClock["clock.System"]
   class Relay["outbox.Relay"]
   class RelaySink["kafka.RelaySink"]
-  class LogSink["outbox.LogSink"]
 
   Writer --> ProductRepository
   Writer --> OutboxRepository
@@ -248,8 +247,7 @@ classDiagram
   EventEncoder <|.. KafkaEncoder
   Clock <|.. SystemClock
   Relay --> PgOutboxRepo : Drain
-  Relay --> RelaySink : EVENT_PUBLISHER kafka
-  Relay --> LogSink : EVENT_PUBLISHER log
+  Relay --> RelaySink : always (Kafka, ADR 0010)
 ```
 
 Source: `internal/application/ports/*.go`, `internal/application/usecases/writer.go`,
@@ -257,7 +255,7 @@ Source: `internal/application/ports/*.go`, `internal/application/usecases/writer
 `internal/adapters/outbound/kafka/encoder.go`, `relay_sink.go`,
 `internal/adapters/outbound/outbox/relay.go`, `internal/adapters/outbound/clock/clock.go`.
 Omits: the in-memory `OutboxRepo`, `ProcessedEventRepo` and `UnitOfWork`
-(same ports as their Postgres twins, used when `DATABASE_URL` is unset), and
+(same ports as their Postgres twins; test doubles only, no binary imports them, ADR 0010), and
 the relay's `Store` / `Sink` interfaces, which `OutboxRepo` and the two sinks
 implement.
 
@@ -267,10 +265,9 @@ implement.
 flowchart LR
   subgraph inbound[Inbound adapters]
     HTTP[http.Server, chi router]
-    LEG[kafka.LegacyImporter]
   end
   subgraph app[Application]
-    UC[usecases: RegisterProduct, ClassifyProduct, DeclareDimensions, RecordMeasurement, ImportLegacyClassification, GetProduct, ListProducts]
+    UC[usecases: RegisterProduct, ClassifyProduct, DeclareDimensions, RecordMeasurement, GetProduct, ListProducts]
     PORTS[ports: ProductRepository, OutboxRepository, EventEncoder, ProcessedEvents, UnitOfWork, Clock]
   end
   subgraph domain[Domain]
@@ -280,10 +277,9 @@ flowchart LR
     PG[postgres]
     MEM[memory]
     ENC[kafka.Encoder]
-    REL[outbox.Relay with kafka.RelaySink or LogSink]
+    REL[outbox.Relay with kafka.RelaySink]
   end
   HTTP --> UC
-  LEG --> UC
   UC --> PROD
   UC --> PORTS
   PG -. implements .-> PORTS
@@ -293,5 +289,5 @@ flowchart LR
 ```
 
 Source: `cmd/api/main.go` (`buildAdapters`, `buildServer`,
-`startLegacyImporter`, `startOutboxRelay`), `internal/architecture/architecture_test.go`.
+`startOutboxRelay`), `internal/architecture/architecture_test.go`.
 Omits: telemetry, readiness and the CloudEvents helper package.
