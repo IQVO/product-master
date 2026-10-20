@@ -23,8 +23,8 @@ diagram is Mermaid, derived from the code on `develop`, and carries a
 | [Ubiquitous language](/docs/ddd/ubiquitous-language) | Glossary | Every term with the code identifier that implements it. |
 | [Class diagrams](/docs/ddd/class-diagram) | UML class diagram | Domain types, and the hexagonal ports with their adapters. |
 | [Entity-relationship diagram](/docs/ddd/entity-relationship) | ER diagram | The final OLTP schema and which tables back the aggregate. |
-| [Sequence diagrams](/docs/ddd/sequence-diagrams) | UML sequence diagram | Register, classify, declare and measure, the legacy import and the outbox relay, with error branches. |
-| [Domain events](/docs/ddd/domain-events) | Event catalogue | Every event published and consumed: full CloudEvents type, topic, key, payload, producer, consumers. |
+| [Sequence diagrams](/docs/ddd/sequence-diagrams) | UML sequence diagram | Register, classify, declare and measure, and the outbox relay, with error branches. |
+| [Domain events](/docs/ddd/domain-events) | Event catalogue | Every event published (none is consumed from another context): full CloudEvents type, topic, key, payload, producer, consumers. |
 
 Related pages outside the pack: [Use cases](/docs/ddd/use-cases),
 [Aggregates](/docs/overview/aggregates),
@@ -34,7 +34,7 @@ Related pages outside the pack: [Use cases](/docs/ddd/use-cases),
 
 :::note[Sources of truth]
 The code wins. Domain rules come from `internal/domain/product`, the use cases
-from `internal/application/usecases`, the wiring from `cmd/api/main.go`, the
+from `internal/application/usecases`, the wiring from `cmd/api/*.go`, the
 schema from `internal/adapters/outbound/postgres/migrations/*.up.sql`, the REST
 contract from `apis/openapi.yaml`, the event contract from `apis/asyncapi.yaml`
 and the encoder in `internal/adapters/outbound/kafka/encoder.go`, and decisions
