@@ -123,7 +123,7 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | Axis | Verdict | Evidence |
 | --- | --- | --- |
 | Domain | **Supporting** | ADR 0001 "Classification"; see the [core domain chart](/docs/ddd/core-domain-chart) |
-| Business model | **Compliance and risk reduction**: it earns nothing itself; it keeps hazmat, temperature and fragile handling correct in every downstream flow | the four consumers use the classification for stow placement and segregation, intake routing, release capabilities and seal-time segregation |
+| Business model | **Compliance and risk reduction**: it earns nothing itself; it keeps hazmat, temperature and fragile handling correct in every downstream flow | five consumers use the classification (stow placement and segregation, intake routing, release capabilities, seal-time segregation, slot plans), and inbound-receiving uses the registered SKUs to accept ASN lines |
 | Evolution | **Custom-built** (genesis) | Created 2026-10-06 (ADRs 0001-0004); the migration from inventory-storage finished with stage E on 2026-10-17 (ADR 0003): product-master is the only producer of classifications |
 
 ## Domain Roles
