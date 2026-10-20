@@ -16,7 +16,7 @@ fitness tests in `internal/architecture`:
 | --- | --- |
 | Domain | `internal/domain/product` |
 | Application (use cases, ports) | `internal/application/{usecases,ports,repository,outbox}`; analytics read model in `internal/analytics` |
-| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (legacy importer, analytics consumer), `internal/adapters/inbound/mcp` (read-only MCP tools) |
+| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (the analytics consumer, wired only by `cmd/product-projector`), `internal/adapters/inbound/mcp` (read-only MCP tools) |
 | Outbound adapters | `internal/adapters/outbound/{postgres,memory,kafka,outbox,clock,telemetry,analyticsstore}` |
 | CloudEvents helper | `internal/adapters/kafka/cloudevents` |
 | Composition roots | `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `cmd/product-reports/main.go` |
@@ -35,7 +35,7 @@ each is its own Deployment in `charts/product-master`.
 
 | Binary | Role | Port | Reads | Writes |
 | --- | --- | --- | --- | --- |
-| `cmd/api` | REST API, outbox relay, legacy classification importer (ADR 0003, only when `LEGACY_IMPORT_CONSUMER_GROUP` is set) | `:8080` (`HTTP_ADDR`): REST, `/healthz`, `/readyz`, `/metrics` | OLTP Postgres; `warehouse.inventory.events` (importer) | OLTP Postgres; `warehouse.product-master.events` and `warehouse.product-master.analytics` (relay) |
+| `cmd/api` | REST API and the outbox relay; needs `DATABASE_URL` and `KAFKA_BROKERS` or it does not boot | `:8080` (`HTTP_ADDR`): REST, `/healthz`, `/readyz` (Postgres ping and Kafka broker check), `/metrics` | OLTP Postgres | OLTP Postgres; `warehouse.product-master.events` and `warehouse.product-master.analytics` (relay) |
 | `cmd/mcp` | Read-only MCP server, four tools, Streamable HTTP at `/` and `/mcp` | `:8090` (`MCP_ADDR`) | OLTP Postgres | nothing (it runs the idempotent OLTP migrations at start) |
 | `cmd/product-projector` | Analytics writer: projects the analytics topic into the analytical database | `:8091` (`ADMIN_ADDR`): `/healthz`, `/readyz` only | `warehouse.product-master.analytics` (group `ANALYTICS_CONSUMER_GROUP`) | analytical Postgres; `warehouse.product-master.analytics.dlq` |
 | `cmd/product-reports` | Read-only reports API (`/reports/master-data-quality`, `/reports/freshness`) | `:8092` (`HTTP_ADDR`) | analytical Postgres (read-only pool) | nothing |
@@ -54,7 +54,7 @@ flowchart TB
     OPR["operators, curl"]
   end
   subgraph pm["product-master (one image, four Deployments)"]
-    API["cmd/api :8080<br/>REST + outbox relay<br/>+ legacy importer"]
+    API["cmd/api :8080<br/>REST + outbox relay"]
     MCP["cmd/mcp :8090<br/>read-only MCP"]
     PROJ["cmd/product-projector :8091<br/>analytics writer"]
     REP["cmd/product-reports :8092<br/>reports API"]
@@ -69,7 +69,6 @@ flowchart TB
   API --> OLTP
   MCP --> OLTP
   API -- "relay: events + analytics topics" --> K
-  K -- "warehouse.inventory.events (legacy)" --> API
   K -- "warehouse.product-master.analytics" --> PROJ
   PROJ -- "poison: .analytics.dlq" --> K
   PROJ --> ADB
@@ -80,22 +79,30 @@ Source: `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/mcp/router.go`,
 `cmd/product-projector/main.go`, `cmd/product-reports/main.go`,
 `internal/adapters/outbound/kafka/encoder.go`,
 `internal/adapters/outbound/kafka/analytics_encoder.go`,
-`internal/adapters/inbound/kafka/legacy_importer.go`,
 `internal/adapters/inbound/kafka/analytics_consumer.go`.
+`cmd/api` consumes no topic: the ADR 0003 legacy importer was removed at
+stage E (2026-10-17).
 Omits: Kong and the Nginx web gateway, the OpenTelemetry Collector and the
-four downstream contexts that consume `warehouse.product-master.events` (see
+six downstream contexts that consume `warehouse.product-master.events` (see
 [Downstream consumers](/docs/ecosystem/downstream-consumers)).
 
 ## Data stores
 
 | Store | Tables | Writers | Readers | Schema |
 | --- | --- | --- | --- | --- |
-| OLTP Postgres (`DATABASE_URL`) | `products`, `outbox_events`, `processed_events` | `cmd/api` | `cmd/api`, `cmd/mcp` | `internal/adapters/outbound/postgres/migrations` (embedded, applied by `cmd/api` and `cmd/mcp` at start) |
+| OLTP Postgres (`DATABASE_URL`) | `products`, `outbox_events`, `processed_events` (no writer since stage E) | `cmd/api` | `cmd/api`, `cmd/mcp` | `internal/adapters/outbound/postgres/migrations` (embedded, applied by `cmd/api` and `cmd/mcp` at start) |
 | Analytical Postgres (`ANALYTICS_DATABASE_URL`) | `analytics_processed_events`, `product_facts`, `profile_states` | `cmd/product-projector` | `cmd/product-reports` | `analytics/migrations` (embedded, applied by the projector at start) |
 
-Without `DATABASE_URL`, `cmd/api` and `cmd/mcp` fall back to in-memory
-adapters (separate per process). The analytical binaries have no in-memory
-mode: `ANALYTICS_DATABASE_URL` is required.
+Postgres and Kafka are the only runtime
+([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)): no binary
+has an in-memory mode. `cmd/api` and `cmd/mcp` exit at boot without
+`DATABASE_URL`, `cmd/api` without `KAFKA_BROKERS`, the analytical binaries
+without `ANALYTICS_DATABASE_URL`, and the projector without
+`ANALYTICS_CONSUMER_GROUP`; the error names the variable and is raised before
+the listener binds. The in-memory adapters in
+`internal/adapters/outbound/memory` are test doubles, and
+`TestRuntimeBinaryHasNoInMemoryAdapters` fails if any `cmd/**` file imports
+them.
 
 ## Writing: one unit of work per command
 
@@ -104,8 +111,8 @@ one `ports.UnitOfWork`: load the `Product`, apply the aggregate command, save
 it guarded by the loaded version, encode the raised events
 (`EventEncoder`) and insert them into `outbox_events`. A command that raises
 no event saves and enqueues nothing. With Postgres the unit of work is one
-transaction (`internal/adapters/outbound/postgres/unit_of_work.go`); without
-`DATABASE_URL` the in-memory adapters provide the same contract.
+transaction (`internal/adapters/outbound/postgres/unit_of_work.go`); the
+in-memory adapters provide the same contract to unit and BDD tests.
 
 ## Publishing: transactional outbox
 
@@ -121,24 +128,31 @@ transaction (`internal/adapters/outbound/postgres/unit_of_work.go`); without
   is still being retried. A row that has failed `OUTBOX_MAX_ATTEMPTS` times
   (default 20, `0` = unlimited) is no longer claimed and is logged once at
   ERROR ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)).
-- `EVENT_PUBLISHER=kafka` uses `RelaySink`: a topic-less kafka-go writer with
-  `RequireAll` acks, a 10 ms batch timeout, the `Hash` balancer on the key (the
-  SKU) and auto topic creation. The default `log` sink only logs each message.
+- The relay always publishes through `RelaySink`: a topic-less kafka-go writer
+  with `RequireAll` acks, a 10 ms batch timeout, the `Hash` balancer on the key
+  (the SKU) and auto topic creation. There is no log sink; `EVENT_PUBLISHER=log`
+  stops the boot.
+- `/readyz` is the drain gate plus a Postgres ping plus a Kafka broker check
+  (a fresh connection that asks for the broker list, so it needs no topic and
+  creates none). The verdict is cached 3 s, one round bounded to 2 s; a failure
+  is a `503` `dependency-unavailable` problem naming `postgres` or `kafka`.
 
-## Consuming: the legacy importer (migration only)
+## Consuming: the analytics projector
 
-- Started only when `LEGACY_IMPORT_CONSUMER_GROUP` is set (it then needs
-  `KAFKA_BROKERS`); reads `warehouse.inventory.events`.
+- `cmd/product-projector` is the only consumer of this context (the ADR 0003
+  legacy importer was removed at stage E, 2026-10-17). It reads
+  `warehouse.product-master.analytics` in the group `ANALYTICS_CONSUMER_GROUP`,
+  which is required: there is no default group id.
 - `FetchMessage`, handle, then `CommitMessages`; never `ReadMessage`.
-- Deterministic problems (not a CloudEvent, another type, malformed payload,
-  invalid classification) are logged at WARN and committed past.
+- A message that is not a CloudEvent is skipped and committed past (one WARN,
+  then at most one per minute with the count suppressed); a CloudEvent of
+  another type is ignored and committed past. A known type with an unusable
+  payload, or one the store rejects deterministically, is dead-lettered to
+  `warehouse.product-master.analytics.dlq` and committed past
+  (`internal/adapters/inbound/kafka/analytics_consumer.go`).
 - A transient failure retries the **same** message with capped exponential
-  backoff (200 ms doubling to 5 s) until it succeeds or the process stops;
-  there is no dead-letter topic. A failed offset commit is retried the same
-  way.
-- `ImportLegacyClassification` claims the CloudEvents `id` in
-  `processed_events` (consumer `legacy-classification-importer`) in the same
-  unit of work as the registration, the import and the outbox insert.
+  backoff (200 ms doubling to 5 s) until it succeeds or the process stops. A
+  failed offset commit is retried the same way.
 
 ## CloudEvents envelope
 
@@ -152,8 +166,8 @@ Structured content mode, Kafka header
 
 On SIGINT/SIGTERM `cmd/api`: (1) flips `/readyz` to `503`, (2) waits
 `SHUTDOWN_DRAIN_DELAY` (default 5s), (3) drains HTTP (10s), (4) stops and
-awaits the importer, (5) stops and awaits the relay last, then closes the
-pool, so nothing committed is stranded.
+awaits the relay last (bounded to 10s), then closes the pool, so nothing
+committed is stranded (`serveUntilSignal` in `cmd/api/main.go`).
 
 ## Observability
 

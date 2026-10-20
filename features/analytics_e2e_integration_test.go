@@ -1,6 +1,6 @@
 //go:build integration
 
-package main_test
+package features_test
 
 import (
 	"bytes"

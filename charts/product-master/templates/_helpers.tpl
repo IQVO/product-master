@@ -111,19 +111,16 @@ ANALYTICS_READER_DATABASE_URL) or the one this chart creates.
 
 {{/*
 analytics.enabled needs an analytical DSN source (both binaries refuse to boot
-without ANALYTICS_DATABASE_URL) and a broker (the projector consumes
-warehouse.product-master.analytics from kafka.brokers). Fail at render instead
-of crash-looping. Events only reach the analytics topic when
-config.eventPublisher is "kafka"; that is documented, not enforced, since the
-projector is harmless without events.
+without ANALYTICS_DATABASE_URL) and a stable consumer group (the projector
+refuses to boot without ANALYTICS_CONSUMER_GROUP). Its broker is the one
+kafka.brokers that product-master.requireKafka already makes mandatory. Fail at
+render instead of crash-looping.
 */}}
 {{- define "product-master.requireAnalyticsConfig" -}}
 {{- if not (or .Values.analytics.database.projectorUrl .Values.analytics.database.existingSecret) -}}
 {{- fail "analytics.enabled is true but neither analytics.database.projectorUrl nor analytics.database.existingSecret is set — the projector and reports binaries refuse to boot without ANALYTICS_DATABASE_URL." -}}
 {{- end -}}
-{{- if not .Values.kafka.enabled -}}
-{{- fail "analytics.enabled is true but kafka.enabled is false — the projector consumes warehouse.product-master.analytics and needs kafka.brokers. Set kafka.enabled=true." -}}
-{{- end -}}
+{{- $_ := required "analytics.enabled is true but analytics.projector.consumerGroup is empty: the projector exits at boot without ANALYTICS_CONSUMER_GROUP, a stable Kafka group id (ADR 0010)." .Values.analytics.projector.consumerGroup -}}
 {{- end -}}
 
 {{/*
@@ -134,25 +131,51 @@ Image reference shared by every Deployment (api, mcp, analytics-projector, analy
 {{- end }}
 
 {{/*
-Fails chart rendering with a clear message if no DATABASE_URL source is
-configured. The binary would silently fall back to in-memory adapters (state
-lost on restart) -- fine for `go run`, never a deployable state, so surface it
-as a helm render-time error instead.
+MANDATORY (ADR 0010: Postgres is the only runtime). The binaries (cmd/api and
+cmd/mcp) exit at boot without DATABASE_URL; there is no in-memory mode.
 */}}
 {{- define "product-master.requireDatabase" -}}
 {{- if not (or .Values.database.url .Values.database.existingSecret) -}}
-{{- fail "product-master requires database.url or database.existingSecret to be set — without DATABASE_URL the binary silently runs on in-memory adapters, which is not a deployable state." -}}
+{{- fail "product-master requires database.url or database.existingSecret to be set (DATABASE_URL): the service runs on real Postgres only and exits at boot without it (ADR 0010)." -}}
 {{- end -}}
 {{- end -}}
 
 {{/*
-EVENT_PUBLISHER=kafka makes the binary refuse to boot without KAFKA_BROKERS
-(cmd/api startOutboxRelay), and KAFKA_BROKERS is only rendered when
-kafka.enabled is true -- so that combination would crash-loop. Fail at render.
+MANDATORY (ADR 0010: Kafka is the only runtime). cmd/api exits at boot without
+KAFKA_BROKERS and without the kafka event publisher; there is no default
+broker, no log sink and no way to switch Kafka off. kafka.enabled is kept only
+so values written before ADR 0010 still render: it may be true, never false.
 */}}
-{{- define "product-master.requireKafkaForPublisher" -}}
-{{- if and (eq .Values.config.eventPublisher "kafka") (not .Values.kafka.enabled) -}}
-{{- fail "config.eventPublisher is \"kafka\" but kafka.enabled is false — the binary exits at boot (EVENT_PUBLISHER=kafka requires KAFKA_BROKERS). Set kafka.enabled=true and kafka.brokers." -}}
+{{- define "product-master.requireKafka" -}}
+{{- $_ := required "product-master requires kafka.brokers to be set (KAFKA_BROKERS, comma-separated): the service runs on real Kafka only and exits at boot without it (ADR 0010)." .Values.kafka.brokers -}}
+{{- if and (hasKey .Values.kafka "enabled") (not .Values.kafka.enabled) -}}
+{{- fail "kafka.enabled is false — Kafka cannot be switched off: the service runs on real Kafka only (ADR 0010). Drop the key or set it to true and set kafka.brokers." -}}
+{{- end -}}
+{{- if ne (toString .Values.config.eventPublisher) "kafka" -}}
+{{- fail (printf "config.eventPublisher is %q — the only publisher is \"kafka\": the log sink was removed (ADR 0010); the binary rejects EVENT_PUBLISHER=log at boot." (toString .Values.config.eventPublisher)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Shutdown is sequential: SHUTDOWN_DRAIN_DELAY (default 5s) + HTTP drain 10s +
+outbox relay 10s = 25s in the worst case. A shorter grace period gets the pod
+SIGKILLed mid-drain.
+*/}}
+{{- define "product-master.requireGracePeriod" -}}
+{{- if lt (int .Values.terminationGracePeriodSeconds) 25 -}}
+{{- fail (printf "terminationGracePeriodSeconds is %v — want at least 25: SHUTDOWN_DRAIN_DELAY (5s default) + 10s HTTP drain + 10s outbox relay." .Values.terminationGracePeriodSeconds) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+No *_MODE variable exists in this context (it consumes nothing in cmd/api) and
+none may be injected through extraEnv: ADR 0010 allows no permissive/off mode.
+*/}}
+{{- define "product-master.requireNoModeEnv" -}}
+{{- range .Values.extraEnv -}}
+{{- if hasSuffix "_MODE" (toString .name) -}}
+{{- fail (printf "extraEnv sets %s — *_MODE variables are not configurable: product-master runs on real Postgres and real Kafka only, with no permissive or off mode (ADR 0010)." .name) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 

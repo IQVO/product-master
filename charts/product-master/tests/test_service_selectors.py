@@ -31,14 +31,16 @@ from pathlib import Path
 CHART_DIR = Path(__file__).resolve().parents[1]
 RELEASE = "product-master"
 
-# Dummy DSN, no password: the chart refuses to render without a database source.
-BASE = ["--set", "database.url=postgres://u@example.invalid:5432/db"]
+# Dummy values, no password: the chart refuses to render without a database
+# source and without Kafka brokers (ADR 0010).
+BASE = [
+    "--set", "database.url=postgres://u@example.invalid:5432/db",
+    "--set", "kafka.brokers=kafka.example.invalid:9092",
+]
 ENABLE_EVERYTHING = BASE + [
     "--set", "mcp.enabled=true",
     "--set", "frontend.enabled=true",
     "--set", "autoscaling.api.enabled=true",
-    "--set", "config.eventPublisher=kafka",
-    "--set", "kafka.enabled=true",
     "--set", "gatewayApi.enabled=true",
     "--set", "ingress.enabled=true",
     "--set", "analytics.enabled=true",
@@ -195,11 +197,18 @@ def check_analytics(services: dict, deployments: dict, failures: list[str]) -> N
 
 
 def check_refusals(failures: list[str]) -> None:
+    db = ["--set", "database.url=postgres://u@example.invalid:5432/db"]
+    kafka = ["--set", "kafka.brokers=kafka.example.invalid:9092"]
     for label, args, needle in (
-        ("without a database source", [], "requires database.url or database.existingSecret"),
-        ("EVENT_PUBLISHER=kafka without kafka", BASE + ["--set", "config.eventPublisher=kafka"], "kafka.enabled is false"),
-        ("analytics without a DSN source", BASE + ["--set", "analytics.enabled=true", "--set", "kafka.enabled=true"], "neither analytics.database.projectorUrl"),
-        ("analytics without kafka", BASE + ["--set", "analytics.enabled=true", "--set", "analytics.database.existingSecret=s"], "analytics.enabled is true but kafka.enabled is false"),
+        ("without a database source", kafka, "requires database.url or database.existingSecret"),
+        ("without Kafka brokers", db, "requires kafka.brokers"),
+        ("with no database and no brokers", [], "requires database.url or database.existingSecret"),
+        ("with kafka.enabled=false", BASE + ["--set", "kafka.enabled=false"], "Kafka cannot be switched off"),
+        ("with the log publisher", BASE + ["--set", "config.eventPublisher=log"], "the only publisher is"),
+        ("with a *_MODE variable in extraEnv", BASE + ["--set", "extraEnv[0].name=LAYOUT_MODE", "--set", "extraEnv[0].value=permissive"], "*_MODE variables are not configurable"),
+        ("with a short grace period", BASE + ["--set", "terminationGracePeriodSeconds=10"], "terminationGracePeriodSeconds"),
+        ("analytics without a DSN source", BASE + ["--set", "analytics.enabled=true"], "neither analytics.database.projectorUrl"),
+        ("analytics without a consumer group", BASE + ["--set", "analytics.enabled=true", "--set", "analytics.database.existingSecret=s", "--set", "analytics.projector.consumerGroup="], "analytics.projector.consumerGroup"),
     ):
         result = helm_template(args)
         if result.returncode == 0 or needle not in result.stderr:
@@ -219,8 +228,10 @@ def main() -> int:
     if stray:
         failures.append(f"optional components rendered with default values: {stray}")
     dep = next(d for d in defaults if d.get("kind") == "Deployment")
-    if "KAFKA_BROKERS" in env_names(dep):
-        failures.append("the legacy importer / KAFKA_BROKERS must be off with default values")
+    if "KAFKA_BROKERS" not in env_names(dep):
+        failures.append("the api Deployment must always render KAFKA_BROKERS (Kafka is mandatory, ADR 0010)")
+    if any(n.endswith("_MODE") for n in env_names(dep)):
+        failures.append("the api Deployment must not render any *_MODE variable (ADR 0010)")
 
     check_refusals(failures)
 
@@ -231,7 +242,8 @@ def main() -> int:
 
     print("PASS: every Service selects exactly one Deployment (api, mcp, analytics-reports, frontend); mcp, "
           "analytics, frontend, HPA and routes are off by default; the chart refuses to render without a database "
-          "source, with Kafka features but no broker, or with analytics but no analytical DSN")
+          "source or Kafka brokers, with the log publisher, kafka.enabled=false, a *_MODE variable, or analytics "
+          "without an analytical DSN or consumer group")
     return 0
 
 

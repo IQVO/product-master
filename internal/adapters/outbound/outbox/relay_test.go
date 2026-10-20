@@ -1,12 +1,10 @@
 package outbox_test
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -163,28 +161,6 @@ func TestOptionsIgnoreNonPositiveValues(t *testing.T) {
 	r := relay.NewRelay(store, sink, nil, relay.WithBatchSize(0), relay.WithBatchSize(-1), relay.WithInterval(0), relay.WithInterval(-time.Second))
 	if n, err := r.RelayOnce(context.Background()); err != nil || n != 3 {
 		t.Fatalf("RelayOnce = %d, %v; want 3", n, err)
-	}
-}
-
-func TestLogSink_LogsEachMessageAndSucceeds(t *testing.T) {
-	var buf bytes.Buffer
-	sink := relay.LogSink{Logger: slog.New(slog.NewTextHandler(&buf, nil))}
-	err := sink.Send(context.Background(),
-		outbox.Message{EventID: "id-1", Topic: "t", EventType: "com.x.A", Subject: "s1"},
-		outbox.Message{EventID: "id-2", Topic: "t", EventType: "com.x.B", Subject: "s1"},
-	)
-	if err != nil {
-		t.Fatalf("Send: %v", err)
-	}
-	out := buf.String()
-	for _, want := range []string{"id-1", "id-2", "com.x.A", "com.x.B", "topic=t", "subject=s1"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("log output missing %q:\n%s", want, out)
-		}
-	}
-	// A zero-value LogSink falls back to the default logger instead of panicking.
-	if err := (relay.LogSink{}).Send(context.Background(), outbox.Message{}); err != nil {
-		t.Fatalf("zero LogSink: %v", err)
 	}
 }
 

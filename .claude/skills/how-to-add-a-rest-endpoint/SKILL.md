@@ -103,7 +103,7 @@ reference to refresh.
 If this endpoint is user-facing behaviour (not purely internal
 plumbing), add a `.feature` file under `features/` exercising it
 end-to-end against the real HTTP server — see `features/classify_product.feature`
-and the step definitions in `features_test.go` for the exact shape this
+and the step definitions in `features/features_test.go` for the exact shape this
 repo's `bdd` CI job expects (Given/When/Then over real HTTP, not mocked).
 
 ## 6. Verify before opening the PR

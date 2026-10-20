@@ -7,16 +7,17 @@
 //
 // The surface is READ-ONLY: no write use case is wired here at all, so this
 // binary can never insert into the outbox. It never starts the outbox relay
-// and never dials Kafka (no EVENT_PUBLISHER, no KAFKA_BROKERS): the relay and
-// the legacy importer run in cmd/api only.
+// and never dials Kafka (no EVENT_PUBLISHER, no KAFKA_BROKERS): the relay
+// runs in cmd/api only. Like cmd/api it has no in-memory mode (ADR 0010):
+// without DATABASE_URL it refuses to boot.
 //
 // There is NO auth of any kind (fleet-wide revert 2026-09-11): no keys, no
 // bearer checks. Access control is the in-cluster ClusterIP boundary.
 //
 // Environment:
 //
+//	DATABASE_URL                 REQUIRED. Postgres DSN
 //	MCP_ADDR                     listen address (default :8090)
-//	DATABASE_URL                 Postgres DSN; unset = in-memory repository
 //	MIGRATIONS_DATABASE_URL      direct DSN for the boot migrations (default DATABASE_URL)
 //	OTEL_EXPORTER_OTLP_ENDPOINT  OTLP/gRPC collector (default localhost:4317)
 //	LOG_LEVEL, SERVICE_VERSION, ENVIRONMENT
@@ -34,7 +35,6 @@ import (
 	"time"
 
 	inboundmcp "github.com/claudioed/product-master/internal/adapters/inbound/mcp"
-	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
 	"github.com/claudioed/product-master/internal/adapters/outbound/postgres"
 	"github.com/claudioed/product-master/internal/adapters/outbound/telemetry"
 	"github.com/claudioed/product-master/internal/application/ports"
@@ -44,6 +44,9 @@ import (
 
 // shutdownTimeout bounds the HTTP server's graceful drain.
 const shutdownTimeout = 10 * time.Second
+
+// errNoDatabase is the boot error of a missing DATABASE_URL.
+var errNoDatabase = errors.New("DATABASE_URL is required: this context runs on real Postgres")
 
 func main() {
 	if err := run(); err != nil {
@@ -55,6 +58,12 @@ func main() {
 func run() error {
 	logger := newLogger(getenv("LOG_LEVEL", "info"))
 	slog.SetDefault(logger)
+
+	// Fail fast, before telemetry, any connection or the listener.
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		return errNoDatabase
+	}
 
 	otelCtx, otelCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	otelShutdown, err := telemetry.Setup(otelCtx, mcpServiceName, getenv("SERVICE_VERSION", "dev"),
@@ -71,7 +80,6 @@ func run() error {
 		}
 	}()
 
-	databaseURL := os.Getenv("DATABASE_URL")
 	deps, closeAdapters, err := buildDeps(context.Background(), logger, databaseURL, getenv("MIGRATIONS_DATABASE_URL", databaseURL))
 	if err != nil {
 		return err
@@ -86,10 +94,9 @@ func run() error {
 	return serveMCP(logger, srv)
 }
 
-// buildDeps selects the product repository the way cmd/api does: no
-// DATABASE_URL means the in-memory repository (runnable locally, empty); a
-// URL means migrate then connect a pgx pool. The returned close func releases
-// the pool.
+// buildDeps migrates and connects Postgres and wires the READ use cases over
+// it. The returned close func releases the pool. An empty databaseURL is a
+// boot error: there is no fallback runtime (ADR 0010).
 //
 // Like every sibling's cmd/mcp this binary runs the idempotent embedded
 // migrations on start, so it can boot against a fresh database before cmd/api
@@ -99,37 +106,36 @@ func run() error {
 // advisory lock); the runtime pool always uses databaseURL.
 func buildDeps(ctx context.Context, logger *slog.Logger, databaseURL, migrationsDatabaseURL string) (inboundmcp.Deps, func(), error) {
 	noop := func() {}
-	var (
-		products ports.ProductRepository
-		closeFn  = noop
-	)
 	if databaseURL == "" {
-		logger.Info("DATABASE_URL not configured; using the in-memory product repository")
-		products = memory.NewProductRepo()
-	} else {
-		// The first outbound dial of an injected pod can be reset (Istio
-		// native sidecars), so migrations and the first ping retry with
-		// backoff; on exhaustion the process refuses to boot.
-		if err := bootretry.Retry(ctx, logger, "run migrations", func() error {
-			return postgres.RunMigrations(migrationsDatabaseURL)
-		}); err != nil {
-			return inboundmcp.Deps{}, noop, err
-		}
-		pool, err := postgres.NewPool(ctx, databaseURL)
-		if err != nil {
-			return inboundmcp.Deps{}, noop, err
-		}
-		if err := bootretry.Retry(ctx, logger, "ping postgres", func() error { return pool.Ping(ctx) }); err != nil {
-			pool.Close()
-			return inboundmcp.Deps{}, noop, err
-		}
-		logger.Info("postgres product repository configured")
-		products, closeFn = postgres.NewProductRepo(pool), pool.Close
+		return inboundmcp.Deps{}, noop, errNoDatabase
 	}
+	// The first outbound dial of an injected pod can be reset (Istio native
+	// sidecars), so migrations and the first ping retry with backoff; on
+	// exhaustion the process refuses to boot.
+	if err := bootretry.Retry(ctx, logger, "run migrations", func() error {
+		return postgres.RunMigrations(migrationsDatabaseURL)
+	}); err != nil {
+		return inboundmcp.Deps{}, noop, err
+	}
+	pool, err := postgres.NewPool(ctx, databaseURL)
+	if err != nil {
+		return inboundmcp.Deps{}, noop, err
+	}
+	if err := bootretry.Retry(ctx, logger, "ping postgres", func() error { return pool.Ping(ctx) }); err != nil {
+		pool.Close()
+		return inboundmcp.Deps{}, noop, err
+	}
+	logger.Info("postgres product repository configured")
+	return depsFor(postgres.NewProductRepo(pool)), pool.Close, nil
+}
+
+// depsFor wires the READ use cases over a product repository. The tests call
+// it with the in-memory test double; the binary only with the Postgres one.
+func depsFor(products ports.ProductRepository) inboundmcp.Deps {
 	return inboundmcp.Deps{
 		GetProduct:   &usecases.GetProduct{Products: products},
 		ListProducts: &usecases.ListProducts{Products: products},
-	}, closeFn, nil
+	}
 }
 
 // serveMCP runs srv until it fails or SIGINT/SIGTERM arrives, then drains it

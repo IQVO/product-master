@@ -8,16 +8,16 @@ sidebar_label: Testing
 
 The test pyramid as it exists in this repo, the `make` targets that run each
 layer, and the CI jobs that gate a pull request. Sources: `Makefile`,
-`.github/workflows/ci.yml`, `.gremlins.yaml`, `features/`, `features_test.go`
-and `internal/architecture/`.
+`.github/workflows/ci.yml`, `.gremlins.yaml`, `features/` (the godog runner
+and the `.feature` files) and `internal/architecture/`.
 
 ## Layers
 
 | Layer | What | Where | Run with | Needs |
 | --- | --- | --- | --- | --- |
-| Unit | Domain invariants, use cases (with fakes), encoders, CloudEvents helper, consumers with fake readers, HTTP handlers via `httptest`, MCP tools in memory, composition-root helpers, the report logic | 40 `*_test.go` files without a build tag, next to the code | `make test` (`go test ./... -race`) | nothing |
-| BDD (godog) | Gherkin acceptance scenarios for every use case, run in process against the in-memory adapters | `features/*.feature`, runner `features_test.go` (`TestFeatures`) | `make bdd` | nothing |
-| Integration | Real Postgres and Kafka started by testcontainers (`postgres:16-alpine`, `confluentinc/confluent-local:7.6.1`) | 14 files with `//go:build integration` (13 suites and one helper) | `make integration` (`go test -tags=integration ./... -race -count=1`) | Docker only |
+| Unit | Domain invariants, use cases (with fakes), encoders, CloudEvents helper, consumers with fake readers, HTTP handlers via `httptest`, MCP tools in memory, composition-root helpers, the report logic | 56 `*_test.go` files without a build tag, next to the code | `make test` (`go test ./... -race`) | nothing |
+| BDD (godog) | Gherkin acceptance scenarios for every use case, run in process against the in-memory test doubles (never a binary's runtime path, ADR 0010) | `features/*.feature`, runner `features/features_test.go` (`TestFeatures`) | `make bdd` | nothing |
+| Integration | Real Postgres and Kafka started by testcontainers (`postgres:16-alpine`, `confluentinc/confluent-local:7.6.1`) | 17 files with `//go:build integration` (15 suites and two helpers, `internal/adapters/outbound/postgres/helper_integration_test.go` and `internal/adapters/inbound/kafka/kafka_itest_helpers_test.go`) | `make integration` (`go test -tags=integration ./... -race -count=1 -timeout 300s`) | Docker only |
 | Architecture fitness | Hexagonal layering and fleet rules, as Go tests | `internal/architecture/` | `make arch-test` | nothing |
 | Mutation | gremlins on the domain | `.gremlins.yaml` | `make mutation`, `make mutation-full` | `gremlins` v0.6.0 |
 | Contract | Spectral lint of both specs; the event catalogue fitness test; MCP tool registry golden file | `apis/`, `internal/architecture/catalogue_fitness_test.go`, `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json` | CI `api-lint`; `make test` | Spectral for the lint |
@@ -26,21 +26,28 @@ and `internal/architecture/`.
 | Chart render | The api Deployment mounts the chart ConfigMap via `envFrom` (gap fix D14); `OUTBOX_MAX_ATTEMPTS` defaults to 20 and renders `0` ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); mcp, projector and reports do not mount the ConfigMap; every backend Deployment sets `ENVIRONMENT`, `SERVICE_VERSION` and the OTLP endpoint ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)) | `charts/product-master/tests/render_test.sh` | `bash charts/product-master/tests/render_test.sh` | Helm |
 
 There is **no** Schemathesis (property-based HTTP contract) job and **no**
-evals job in this repo's CI. `EVALS.md` and `tools/harness_eval*.py` document
+evals job in this repo's CI (`.github/workflows/ci.yml` on `develop`; the
+Schemathesis `contract` job that facility-layout and inventory-storage run
+against real service containers is not here). `EVALS.md` and `tools/harness_eval*.py` document
 harness evaluations that were run against inventory-storage, not tests of this
 service.
 
 ### BDD features
 
-5 feature files, 31 scenarios (4 of them Scenario Outlines):
+8 feature files, 48 scenarios (14 of them Scenario Outlines). The two
+legacy-import feature files were deleted with the importer at stage E
+(product-master #48).
 
-| Feature file | Scenarios |
+| Feature file | Scenarios (of which outlines) |
 | --- | --- |
-| `features/register_product.feature` | 6 |
-| `features/classify_product.feature` | 6 |
-| `features/physical_profile.feature` | 8 |
-| `features/list_products.feature` | 5 |
-| `features/legacy_import.feature` | 6 |
+| `features/register_product.feature` | 6 (1) |
+| `features/classify_product.feature` | 6 (1) |
+| `features/classification_rules.feature` | 6 (2) |
+| `features/physical_profile.feature` | 8 (1) |
+| `features/physical_profile_rules.feature` | 8 (4) |
+| `features/list_products.feature` | 5 (1) |
+| `features/list_products_rules.feature` | 3 (1) |
+| `features/product_contract.feature` | 6 (3) |
 
 ### Integration tests
 
@@ -58,13 +65,14 @@ The suites use three container shapes:
   use-case wiring and `pgtx` suites.
 - **One Kafka broker per package.** A `sync.Once` starts the broker on first
   use and `TestMain` terminates it; every test creates its own uniquely named
-  topic. Used by the relay, legacy-importer (and the analytics consumer in the
-  same package) and Kafka publisher suites.
+  topic. Used by the relay, the analytics consumer (its shared broker,
+  `TestMain` and topic helpers live in `kafka_itest_helpers_test.go`) and the
+  Kafka publisher suites.
 - **One container per test.** A helper starts and migrates a fresh Postgres
   and terminates it in `t.Cleanup` (the repository suite's helper notes why:
   its tests assert on whole-table contents). Used by `internal/adapters/outbound/postgres`
   (`helper_integration_test.go`), the analytical store, `cmd/mcp`, the
-  Postgres side of the relay, legacy-importer and analytics-consumer suites,
+  Postgres side of the relay and analytics-consumer suites,
   and both containers of the end-to-end suite.
 
 | File | Tests | Covers |
@@ -77,13 +85,14 @@ The suites use three container shapes:
 | `internal/adapters/outbound/outbox/relay_integration_test.go` | `TestRelay_RealPostgresAndKafka_PublishesCloudEventsKeyedBySKU` | Relay draining Postgres into a real Kafka |
 | `internal/adapters/outbound/outbox/relay_cap_integration_test.go` | `TestOutboxRelay_MaxAttempts_PoisonRowExcludedThenGoodRowPublishes`, `TestOutboxRelay_MaxAttempts_ReArmedRowIsClaimedAgain`, `TestOutboxRelay_NoCap_PoisonRowBlocksLaterRows` | Relay attempt cap over real Postgres: a poison row is excluded after N failures and logged once at ERROR, and the good row behind it (same key) publishes; the runbook's re-arm SQL; `0` = unlimited ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)) |
 | `internal/adapters/outbound/outbox/outbox_trace_integration_test.go` | `TestOutboxTrace_TraceparentCrossesTheOutboxToKafka`, `TestOutboxTrace_RowWithoutTraceHeadersRelaysUnchanged` | Trace continuity over real Postgres and Kafka: the request span's `traceparent` is stored in `outbox_events.headers`, relayed by a pass on a background context and extracts to the request's trace and span; a row without stored headers relays unchanged with no headers ([ADR 0009](/docs/adr/0009-trace-context-crosses-the-outbox)) |
-| `internal/adapters/inbound/kafka/legacy_importer_integration_test.go` | `TestLegacyImporter_EndToEnd` | Legacy importer end to end (Kafka and Postgres) |
 | `internal/adapters/inbound/kafka/analytics_consumer_integration_test.go` | `TestAnalyticsConsumer_RealKafkaAndPostgres` | Projector consumer against the analytical store |
 | `internal/adapters/outbound/analyticsstore/postgres_integration_test.go` | `TestPostgres_Contract`, `TestPostgres_DedupeMarkAndEffectAreAtomic`, `TestPostgres_ReadOnlyPoolCannotWrite`, `TestPostgres_DayWindowsMatchTheGoDefinition` | Analytical migrations, projection and report queries (the same contract test runs against the in-memory store) |
 | `internal/adapters/inbound/http/rest_integration_test.go` | `TestREST_ProductLifecycleEndToEnd`, `TestREST_ValidationAndDomainRejectionsAreProblemDocuments` | The real chi router over the real Postgres-backed use cases, through `httptest`: the PUT lifecycle (`201` then `200`), GET round trips including the list, and RFC 7807 problems (`product-not-found`, `malformed-request`, `invalid-description`, `no-handling-tags`, `temperature-class-not-applicable`, `stale-measurement`) that leave the aggregate unchanged |
 | `internal/adapters/inbound/mcp/streamable_http_integration_test.go` | `TestStreamableHTTP_ListToolsExposesTheReadOnlyContract`, `TestStreamableHTTP_CallToolReadsWhatPostgresPersisted`, `TestStreamableHTTP_RejectionsAreToolErrorsNotTransportErrors` | The MCP handler on a real Streamable HTTP server, driven by the SDK client over data seeded through the write use cases: `tools/list` exposes the four tools, each with `readOnlyHint`; every tool reads what Postgres holds; `product-not-found`, `invalid-sku`, `product-classification-not-found` and `malformed-request` come back as tool errors, not transport errors |
 | `cmd/mcp/main_integration_test.go` | `TestMCPAgainstPostgres_ReadsWhatTheAPIWroteAndNeverWrites` | `cmd/mcp` against a real database: reads what the API wrote and never writes |
-| `analytics_e2e_integration_test.go` | `TestAnalyticsReadSide_EndToEnd` | Write through the use cases, relay to Kafka, project, read the report |
+| `features/analytics_e2e_integration_test.go` | `TestAnalyticsReadSide_EndToEnd` | Write through the use cases, relay to Kafka, project, read the report |
+| `cmd/api/e2e_integration_test.go` | `TestRunOnRealPostgresAndKafka` | The real `run()` booted in process on testcontainers Postgres and Kafka, driven only through REST: rows in Postgres, CloudEvents on `warehouse.product-master.events` and `.analytics`, replay idempotency, an in-process restart, and `/readyz` going green with no topic and `503` naming the dependency when Postgres or Kafka goes away ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)) |
+| `internal/adapters/outbound/kafka/publisher_integration_test.go` | `TestBrokerCheck_RealKafka_NeedsNoTopicAndCreatesNone`, `TestBrokerCheck_ClosedPortIsNotReady` | The `/readyz` broker check against a real broker: passes with no topic and creates none; a closed port is not ready |
 
 The CI `integration` job runs the same command as `make integration`
 (`./...`), so every suite above runs on every push and pull request.
@@ -95,6 +104,8 @@ The CI `integration` job runs the same command as `make integration`
 | `TestHexagonalArchitecture` | arch-go layering: domain imports nothing internal, adapters never import each other, only `cmd/*` wires them |
 | `TestMCPAdapterDependencyRule` | the MCP adapter depends only on the application layer and the domain, and nothing depends on it |
 | `TestNoAuthMiddlewareReintroduced` | no auth middleware on any router (REST and MCP are unauthenticated fleet-wide) |
+| `TestRuntimeBinaryHasNoInMemoryAdapters` (+ `TestRuntimeBinarySensorBites`) | no non-test file under `cmd/**` imports `internal/adapters/outbound/memory`: the shipped binaries run on real Postgres and Kafka only ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)). The twin proves the detector flags a probe file. |
+| `TestNoGoFilesAtRepoRoot` (+ `TestNoGoFilesAtRepoRootSensorBites`, `TestNoGoFilesAtRepoRootUnreadableRootFails`) | the repository root holds no Go file (the godog runner lives in `features/`) |
 | `TestKafkaConsumerGroupNeverHardcodedInline` | a consumer `GroupID` never comes from an inline string literal |
 | `TestKafkaIntegrationTestsUseTestcontainers`, `TestPostgresIntegrationTestsUseTestcontainers`, `TestPostgresIntegrationSensorFailsOnBadFixtures` | integration tests start their own containers and never gate on env vars |
 | `TestNoEventEnvelopeToggleOrFlatEnvelope`, `TestCloudEventsOnly` | CloudEvents 1.0 built only through `internal/adapters/kafka/cloudevents`; no flat envelope, no toggle |
@@ -163,7 +174,7 @@ before each push.
 | `complexity` | golangci-lint with only gocyclo, gocognit, cyclop, funlen, nestif; plus an informational gocyclo report | every push and PR |
 | `test` | build, vet, then `make coverage` (unit tests with the Makefile's coverage scope and 90% gate) | every push and PR |
 | `bdd` | `go test ./... -run TestFeatures -v` | every push and PR |
-| `integration` | `go test -tags=integration ./... -race -count=1` | every push and PR |
+| `integration` | `go test -tags=integration ./... -race -count=1 -timeout 300s` | every push and PR |
 | `mutation-fast` | gremlins on `./internal/domain/product` | every push and PR |
 | `mutation` | gremlins on `./internal/domain`; opens or closes a `harness:red` issue | schedule and dispatch only |
 | `drift` | deadcode, `go mod tidy -diff`, knip on `web/`, coverage-quality report (advisory) | schedule and dispatch only |

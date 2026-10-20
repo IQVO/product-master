@@ -155,10 +155,11 @@ Two DIFFERENT correct patterns exist. Picking the wrong one for your use
 case is THE most common integration-event mistake in this fleet, and it
 was learned from a real incident (wes-work-planning#67).
 
-**Pattern A — long-lived, single-instance consumer group (a named
-constant).** Use when exactly ONE instance of this consumer ever runs at
-a time (e.g. this service's own analytics projector). The group id is a
-plain named constant (`AnalyticsConsumerGroup`), reused across restarts —
+**Pattern A — long-lived, single-instance consumer group (a stable
+id).** Use when exactly ONE instance of this consumer ever runs at
+a time (e.g. this service's own analytics projector). The group id comes from
+the required env `ANALYTICS_CONSUMER_GROUP` (no default; the chart value
+`analytics.projector.consumerGroup` sets it), reused across restarts —
 that's correct because Kafka's committed-offset resume semantics are
 EXACTLY what you want: pick up where the single instance left off.
 
@@ -166,8 +167,8 @@ EXACTLY what you want: pick up where the single instance left off.
 when this consumer rebuilds a complete read model from a topic's FULL
 history on every start (an event-sourced local cache, not a work queue) —
 see inventory-storage's facility-cache consumer (`consumerGroupPrefix` +
-`uniqueConsumerGroup()`); product-master has no such consumer. Its legacy
-consumer is Pattern A with the group from env (the retired ADR 0003 importer used `LEGACY_IMPORT_CONSUMER_GROUP`). The group id MUST be unique per process instance
+`uniqueConsumerGroup()`); product-master has no such consumer; its only
+consumer (the projector) is Pattern A with the group from env. The group id MUST be unique per process instance
 (hostname+PID+timestamp), NEVER a fixed shared string. Consumer group
 offsets are shared infrastructure state: a brand-new process joining a
 group an EARLIER instance already consumed resumes from that instance's

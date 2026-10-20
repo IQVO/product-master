@@ -7,13 +7,17 @@ sidebar_position: 19
 
 # Entity-relationship diagram
 
-The final OLTP schema after applying every migration in order. This service has
-**one** Postgres database (`DATABASE_URL`), migrated at boot by `cmd/api` with
+The final OLTP schema after applying every migration in order. The OLTP
+Postgres database (`DATABASE_URL`) is migrated at boot by `cmd/api` with
 golang-migrate (`postgres.RunMigrations`, over `MIGRATIONS_DATABASE_URL` when
 set) from `internal/adapters/outbound/postgres/migrations/`. There is a single
 migration so far, `0001_products_outbox`. golang-migrate keeps its own
-`schema_migrations` table. Without `DATABASE_URL` the service runs on the
-in-memory adapters and persists nothing.
+`schema_migrations` table. `DATABASE_URL` is mandatory: there is no in-memory
+mode ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)).
+The separate analytical database (`ANALYTICS_DATABASE_URL`: tables
+`analytics_processed_events`, `product_facts`, `profile_states`, migrated by
+`cmd/product-projector` from `analytics/migrations/`) is described on the
+[runbook](/docs/operations/runbook) and [Runtime](/docs/overview/runtime).
 
 ## OLTP database
 
@@ -49,14 +53,14 @@ erDiagram
     bytea key "the SKU"
     text dataschema
     bytea value "structured CloudEvent"
-    jsonb headers "content-type"
+    jsonb headers "content-type, traceparent"
     timestamptz created_at
     timestamptz published_at "null until relayed"
     integer attempts
     text last_error
   }
   processed_events {
-    text consumer PK "legacy-classification-importer"
+    text consumer PK "no writer since stage E"
     text event_id PK "CloudEvents id"
     timestamptz processed_at
   }
@@ -81,4 +85,4 @@ independent, so no relationship line is drawn. `outbox_events.subject` and
 | --- | --- | --- | --- |
 | `products` | the whole `Product` aggregate, flattened: classification and both halves of the physical profile are columns, not child tables | `ProductRepo.Save` (insert when the loaded version is 0, else `UPDATE ... WHERE sku = $1 AND version = <loaded>`) | One row per SKU; no history. The effective values, `effectiveSource`, `discrepancy` and volume are derived in Go, never stored. |
 | `outbox_events` | nothing in the domain: already-encoded Kafka messages | `OutboxRepo.Insert` in the use case's transaction; `OutboxRepo.Drain` marks rows published | Kept after publication (no cleanup job). |
-| `processed_events` | nothing in the domain: idempotency claims of the legacy importer | `ProcessedEventRepo.Claim` (`INSERT ... ON CONFLICT DO NOTHING`) in the import's transaction | A rollback un-claims the id. |
+| `processed_events` | nothing in the domain: inbound-consumer idempotency claims | nobody today: `ProcessedEventRepo.Claim` (`INSERT ... ON CONFLICT DO NOTHING`, in the caller's transaction) was called only by the ADR 0003 legacy importer, removed at stage E | Kept by migration `0001` (no migration drops it); rows the importer claimed under consumer `legacy-classification-importer` remain. |
