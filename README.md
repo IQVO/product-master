@@ -9,10 +9,14 @@ weight). Hexagonal Go, Postgres, REST, Kafka (CloudEvents 1.0).
 - Why it exists and how it relates to the other contexts:
   [ADR 0001](docs/adr/0001-product-master-bounded-context.md)
 - Physical profile rules: [ADR 0002](docs/adr/0002-physical-profile-declared-vs-measured.md)
-- Migration from inventory-storage: [ADR 0003](docs/adr/0003-migration-from-inventory-storage.md)
+- Migration from inventory-storage (finished: stage E, 2026-10-17, removed the legacy importer): [ADR 0003](docs/adr/0003-migration-from-inventory-storage.md)
 - Event catalogue: [ADR 0004](docs/adr/0004-cloudevents-envelope-and-type-catalogue.md)
 - Read-only MCP server: [ADR 0005](docs/adr/0005-mcp-server-adoption.md)
 - Analytics read side: [ADR 0006](docs/adr/0006-analytics-read-side.md)
+- Outbox relay attempt cap: [ADR 0007](docs/adr/0007-outbox-relay-attempt-cap.md);
+  projector telemetry: [ADR 0008](docs/adr/0008-projector-telemetry-and-environment.md);
+  trace context across the outbox: [ADR 0009](docs/adr/0009-trace-context-crosses-the-outbox.md)
+- Postgres and Kafka are the only runtime: [ADR 0010](docs/adr/0010-postgres-and-kafka-are-the-only-runtime.md)
 - Contracts: [`apis/openapi.yaml`](apis/openapi.yaml) (REST),
   [`apis/asyncapi.yaml`](apis/asyncapi.yaml) (events on
   `warehouse.product-master.events`)
@@ -31,7 +35,7 @@ Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
 | [Runbook](docs/docs/operations/runbook.md) | Deployment, migrations, Kafka topics and groups, outbox relay, DLQ, scaling, procedures |
 | [Observability](docs/docs/operations/observability.md) | Metrics, traces, logs, health endpoints, suggested alerts |
 | [Troubleshooting](docs/docs/operations/troubleshooting.md) | Symptom, cause, check, fix |
-| [Testing](docs/docs/development/testing.md) | Test pyramid, the 13 testcontainers integration suites, `make` targets, CI jobs |
+| [Testing](docs/docs/development/testing.md) | Test pyramid, the 15 testcontainers integration suites, `make` targets, CI jobs |
 | [Integration: downstream](docs/docs/ecosystem/downstream-consumers.md), [upstream](docs/docs/ecosystem/upstream-contracts.md) | Every consumer and producer edge |
 | [Use cases](docs/docs/ddd/use-cases.md) | Triggers, inputs, invariants, events |
 | [Subdomain classification](docs/docs/ddd/subdomain-classification.md) | Supporting, `wms` tier, and the neighbours |
@@ -58,28 +62,34 @@ Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
 ## Where it runs (kind cluster, warehouse-infra)
 
 Deployed in the `warehouse-systems` namespace by warehouse-infra
-(`terraform/locals.tf`, `helm-values/product-master.yaml`), all from the one
+(`terraform/apps.yaml`, `helm-values/product-master.yaml`), all from the one
 image:
 
 | Surface | How to reach it | Notes |
 |---|---|---|
 | REST API (`cmd/api`) | `http://localhost:8000/api/product-master/*` through Kong (strips the prefix) | runs on real Postgres and Kafka only (ADR 0010); `/readyz` checks both |
 | Console remote (`web/`, `productmaster_mfe`) | `http://localhost/mfes/product-master/` (web gateway); the console shell mounts it at `/product-master/*` (warehouse-console #66) | calls the REST API above |
-| MCP server (`cmd/mcp`) | in-cluster only: `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp` | read by `warehouse-ops-agent` (its ADR 0020, `PRODUCT_MASTER_MCP_ENDPOINT`) |
+| MCP server (`cmd/mcp`) | in-cluster `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`; through Kong at `http://localhost:8000/api/mcp/product-master` (chart `mcp-route.yaml`) | read by `warehouse-ops-agent` in-cluster (its ADR 0020, `PRODUCT_MASTER_MCP_ENDPOINT`) |
 | Analytics projector (`cmd/product-projector`) | in-cluster only | group `product-master-analytics`, database `product_master_analytics` |
-| Reports (`cmd/product-reports`) | in-cluster Service `product-master-reports` (port 80 to 8092) | see the known issue below |
+| Reports (`cmd/product-reports`) | `http://localhost:8000/api/product-master/reports/*` through Kong (chart `reports-route.yaml`, rewritten to `/reports`); in-cluster Service `product-master-reports` (port 80 to 8092) | see the note below |
 
-Known issue: warehouse-infra also declares a Kong route
-`/api/product-master/reports/*`, but requests to it are answered by the
-`/api/product-master` route instead (the OLTP API has no `/reports/*` path),
-so through Kong the reports return `404`. The reports service itself works
-in-cluster; until the route is fixed in warehouse-infra, use
+Reports through Kong: warehouse-infra recorded on 2026-10-07 that
+`/api/product-master/reports/*` was answered by the `/api/product-master`
+route and returned `404`. The reports route has since moved into this chart
+(`charts/product-master/templates/reports-route.yaml`, render condition fixed
+in `8c22a05` on 2026-10-13) and has not been re-tested on a running cluster.
+If it still returns `404`, use
 `kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`
 and call `http://localhost:8092/reports/master-data-quality`.
 
-Downstream, inventory-storage, order-management, wes-work-planning and
-fulfillment-execution keep local copies of `ProductClassified` (all deployed
-in Kafka mode); see `docs/docs/ecosystem/downstream-consumers.md`.
+Downstream, six contexts keep local copies from `warehouse.product-master.events`,
+all built on their `develop` and wired in Kafka mode in warehouse-infra:
+inventory-storage, order-management, wes-work-planning, fulfillment-execution
+and slotting-optimization consume `ProductClassified` (slotting-optimization
+also `ProductDimensionsDeclared` and `ProductMeasured`), and inbound-receiving
+consumes `ProductRegistered`. `ProductDescriptionChanged` has no consumer.
+Nothing flows in: the legacy classification importer from inventory-storage
+was removed at stage E. See `docs/docs/ecosystem/downstream-consumers.md`.
 
 ## Running locally
 

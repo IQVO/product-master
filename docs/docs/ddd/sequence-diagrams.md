@@ -169,64 +169,7 @@ Source: `internal/application/usecases/physical_profile.go`, `writer.go`,
 `internal/domain/product/physical.go`, `product.go`.
 Omits: the `409 concurrent-modification` branch on `Save`.
 
-## 4. Legacy import from inventory-storage (Kafka, migration only)
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant K as Kafka warehouse.inventory.events
-  participant L as LegacyImporter
-  participant UC as ImportLegacyClassification
-  participant U as UnitOfWork
-  participant PE as ProcessedEvents
-  participant R as ProductRepository
-  participant P as Product
-  participant O as Encoder and Outbox
-  K->>L: FetchMessage
-  L->>L: cloudevents.Decode, match the full type, DataAs
-  alt not a CloudEvent or malformed payload
-    L->>K: CommitMessages, skipped with a WARN
-  else another type on the topic
-    L->>K: CommitMessages, ignored
-  else legacy ProductClassified
-    L->>UC: Handle(event id, sku, tags, temperature class, DOT class)
-    UC->>UC: NewSKU, NewClassification
-    alt invalid
-      UC-->>L: ErrInvalidLegacyImport
-      L->>K: CommitMessages, skipped with a WARN
-    end
-    UC->>U: Do
-    U->>PE: Claim(legacy-classification-importer, event id)
-    alt already claimed
-      Note over UC: outcome duplicate, nothing else happens
-    else first time
-      U->>R: Get(sku)
-      opt not found
-        UC->>P: Register(sku, empty description, now)
-      end
-      UC->>P: ImportLegacyClassification(c, now)
-      Note over P: native classification or identical legacy one means no event
-      opt events raised
-        UC->>R: Save(product, loaded version or 0)
-        UC->>O: Encode and Insert ProductRegistered and or ProductClassified
-      end
-    end
-    U-->>UC: commit
-    L->>K: CommitMessages
-  end
-  opt transient failure such as claim, get, save or commit
-    Note over L: rollback, retry the same message, backoff 200ms doubling to 5s, until it succeeds
-  end
-```
-
-Source: `internal/adapters/inbound/kafka/legacy_importer.go` (`HandleMessage`),
-`kafka.go` (`consumeLoop`, `retryUntilOK`),
-`internal/application/usecases/import_legacy_classification.go`,
-`internal/adapters/outbound/postgres/processed_event_repository.go`.
-Omits: the offset-commit retry loop (a failed commit is retried the same way)
-and logging of the outcome.
-
-## 5. Outbox relay to Kafka
+## 4. Outbox relay to Kafka
 
 ```mermaid
 sequenceDiagram
@@ -234,13 +177,13 @@ sequenceDiagram
   participant Rel as outbox.Relay in cmd/api
   participant DB as OutboxRepo, outbox_events
   participant S as RelaySink
-  participant K as Kafka warehouse.product-master.events
+  participant K as Kafka, the events and the analytics topic
   loop every OUTBOX_RELAY_INTERVAL, default 1s, or at once after a full batch
     Rel->>DB: Drain(limit 100)
     DB->>DB: BEGIN, SELECT unpublished AND attempts below OUTBOX_MAX_ATTEMPTS ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED
     loop each row in id order
       DB->>S: Send(message)
-      S->>K: WriteMessages key SKU, value CloudEvent, content-type header, RequireAll acks
+      S->>K: WriteMessages to the row's topic, key SKU, value CloudEvent, stored headers, RequireAll acks
       alt send failed
         DB->>DB: attempts plus 1, last_error, COMMIT what was already sent, stop the pass
         Note over Rel: error logged, retried after the interval with the same CloudEvents id, at the attempt cap logged once at ERROR and excluded (ADR 0007)
@@ -258,3 +201,7 @@ Source: `internal/adapters/outbound/outbox/relay.go` (`Run`, `RelayOnce`),
 `cmd/api/relay.go` (`startOutboxRelay`).
 Omits: the in-memory `OutboxRepo.Drain` (a test double), and the
 shutdown order (the relay stops last).
+
+There is no inbound Kafka diagram for `cmd/api`: the ADR 0003 legacy importer,
+its only consumer, was removed at stage E (2026-10-17). The analytics
+projector's consumer is described on [Runtime](/docs/overview/runtime).

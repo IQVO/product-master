@@ -16,7 +16,7 @@ fitness tests in `internal/architecture`:
 | --- | --- |
 | Domain | `internal/domain/product` |
 | Application (use cases, ports) | `internal/application/{usecases,ports,repository,outbox}`; analytics read model in `internal/analytics` |
-| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (legacy importer, analytics consumer), `internal/adapters/inbound/mcp` (read-only MCP tools) |
+| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (the analytics consumer, wired only by `cmd/product-projector`), `internal/adapters/inbound/mcp` (read-only MCP tools) |
 | Outbound adapters | `internal/adapters/outbound/{postgres,memory,kafka,outbox,clock,telemetry,analyticsstore}` |
 | CloudEvents helper | `internal/adapters/kafka/cloudevents` |
 | Composition roots | `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `cmd/product-reports/main.go` |
@@ -69,7 +69,6 @@ flowchart TB
   API --> OLTP
   MCP --> OLTP
   API -- "relay: events + analytics topics" --> K
-  K -- "warehouse.inventory.events (legacy)" --> API
   K -- "warehouse.product-master.analytics" --> PROJ
   PROJ -- "poison: .analytics.dlq" --> K
   PROJ --> ADB
@@ -80,17 +79,18 @@ Source: `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/mcp/router.go`,
 `cmd/product-projector/main.go`, `cmd/product-reports/main.go`,
 `internal/adapters/outbound/kafka/encoder.go`,
 `internal/adapters/outbound/kafka/analytics_encoder.go`,
-`internal/adapters/inbound/kafka/legacy_importer.go`,
 `internal/adapters/inbound/kafka/analytics_consumer.go`.
+`cmd/api` consumes no topic: the ADR 0003 legacy importer was removed at
+stage E (2026-10-17).
 Omits: Kong and the Nginx web gateway, the OpenTelemetry Collector and the
-four downstream contexts that consume `warehouse.product-master.events` (see
+six downstream contexts that consume `warehouse.product-master.events` (see
 [Downstream consumers](/docs/ecosystem/downstream-consumers)).
 
 ## Data stores
 
 | Store | Tables | Writers | Readers | Schema |
 | --- | --- | --- | --- | --- |
-| OLTP Postgres (`DATABASE_URL`) | `products`, `outbox_events`, `processed_events` | `cmd/api` | `cmd/api`, `cmd/mcp` | `internal/adapters/outbound/postgres/migrations` (embedded, applied by `cmd/api` and `cmd/mcp` at start) |
+| OLTP Postgres (`DATABASE_URL`) | `products`, `outbox_events`, `processed_events` (no writer since stage E) | `cmd/api` | `cmd/api`, `cmd/mcp` | `internal/adapters/outbound/postgres/migrations` (embedded, applied by `cmd/api` and `cmd/mcp` at start) |
 | Analytical Postgres (`ANALYTICS_DATABASE_URL`) | `analytics_processed_events`, `product_facts`, `profile_states` | `cmd/product-projector` | `cmd/product-reports` | `analytics/migrations` (embedded, applied by the projector at start) |
 
 Postgres and Kafka are the only runtime
@@ -144,9 +144,12 @@ in-memory adapters provide the same contract to unit and BDD tests.
   `warehouse.product-master.analytics` in the group `ANALYTICS_CONSUMER_GROUP`,
   which is required: there is no default group id.
 - `FetchMessage`, handle, then `CommitMessages`; never `ReadMessage`.
-- Deterministic problems (not a CloudEvent, another type, malformed payload)
-  are dead-lettered to `warehouse.product-master.analytics.dlq` and committed
-  past.
+- A message that is not a CloudEvent is skipped and committed past (one WARN,
+  then at most one per minute with the count suppressed); a CloudEvent of
+  another type is ignored and committed past. A known type with an unusable
+  payload, or one the store rejects deterministically, is dead-lettered to
+  `warehouse.product-master.analytics.dlq` and committed past
+  (`internal/adapters/inbound/kafka/analytics_consumer.go`).
 - A transient failure retries the **same** message with capped exponential
   backoff (200 ms doubling to 5 s) until it succeeds or the process stops. A
   failed offset commit is retried the same way.
@@ -163,8 +166,8 @@ Structured content mode, Kafka header
 
 On SIGINT/SIGTERM `cmd/api`: (1) flips `/readyz` to `503`, (2) waits
 `SHUTDOWN_DRAIN_DELAY` (default 5s), (3) drains HTTP (10s), (4) stops and
-awaits the importer, (5) stops and awaits the relay last, then closes the
-pool, so nothing committed is stranded.
+awaits the relay last (bounded to 10s), then closes the pool, so nothing
+committed is stranded (`serveUntilSignal` in `cmd/api/main.go`).
 
 ## Observability
 

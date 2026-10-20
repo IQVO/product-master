@@ -29,14 +29,16 @@ Package `internal/domain/product` (`product.go`, `classification.go`,
 | `Register(sku, description, now)` | `ProductRegistered` (version 1) | never (creation) |
 | `ChangeDescription(description, now)` | `ProductDescriptionChanged` | same text |
 | `Classify(classification, now)` | `ProductClassified` (source `native`) | same classification already `native` |
-| `ImportLegacyClassification(classification, now)` | `ProductClassified` (source `legacy-import`) | current classification is `native`, or identical and already `legacy-import` |
 | `DeclareDimensions(dimensions, now)` | `ProductDimensionsDeclared` | same declared values |
 | `RecordMeasurement(measurement, now)` | `ProductMeasured` | the identical reading (same dimensions, `measuredAt` and device) |
 
-Confirming a legacy-imported classification with the same values through
-`Classify` **is** a change: the source becomes `native`, the version bumps and
-`ProductClassified` is raised again (`setClassification` compares source and
-classification).
+No command sets the source `legacy-import` any more: the ADR 0003 importer
+and its `ImportLegacyClassification` method were removed at stage E
+(2026-10-17). A product still carries `legacy-import` when the importer wrote
+its classification before then. Confirming such a classification with the
+same values through `Classify` **is** a change: the source becomes `native`,
+the version bumps and `ProductClassified` is raised again
+(`setClassification` compares source and classification).
 
 ### Invariants
 
@@ -49,7 +51,6 @@ classification).
 | Each dimension 1..20000 mm, weight 1..2000000 g | `NewUnitDimensions`: `ErrInvalidDimension`, `ErrInvalidWeight` |
 | A measurement has a `measuredAt` that is not after the service clock; device id at most 64 characters without control characters | `NewMeasurement`: `ErrMissingMeasuredAt`, `ErrMeasuredAtInFuture`, `ErrInvalidDeviceID` |
 | The latest measurement is never replaced by an older one | `RecordMeasurement`: `ErrStaleMeasurement` |
-| A legacy import never overwrites a `native` classification | `ImportLegacyClassification` |
 | `version` starts at 1 and increases by exactly one per accepted change | `Register`, `bump` |
 
 ### Persistence guard
@@ -66,5 +67,5 @@ only `WHERE sku = $1 AND version = <loaded>`. No affected row is
 | --- | --- | --- |
 | `Classification` | Value object | Immutable, constructed only through `NewClassification`, compared with `Equal` |
 | `PhysicalProfile`, `UnitDimensions`, `Measurement` | Value objects | Immutable parts of `Product`; replaced whole (ADR 0002) |
-| `processed_events` | Idempotency guard | Claims of the legacy importer, no domain meaning |
+| `processed_events` | Idempotency guard | Held the claims of the legacy importer; no writer since stage E, no domain meaning |
 | `outbox_events` | Transactional outbox | Already-encoded Kafka messages awaiting the relay |
