@@ -121,10 +121,12 @@ config:
   # binary's own local-dev default applies. In the kind cluster Kong's global
   # CORS plugin handles browsers; set this only for a direct-to-pod caller.
   corsAllowedOrigins: ""
-  # EVENT_PUBLISHER: "log" (default; the outbox drains to the log sink) or
-  # "kafka" (relay Product events onto warehouse.product-master.events;
-  # requires kafka.enabled=true -- the chart refuses to render otherwise).
-  eventPublisher: "log"
+  # EVENT_PUBLISHER: "kafka" is the ONLY publisher (ADR 0010): Product events
+  # are relayed from the transactional outbox onto
+  # warehouse.product-master.events and warehouse.product-master.analytics.
+  # The log sink was removed; the chart refuses to render any other value and
+  # the binary rejects EVENT_PUBLISHER=log at boot.
+  eventPublisher: "kafka"
   # OUTBOX_RELAY_INTERVAL: Go duration ("500ms", "2s") or plain seconds.
   # Empty = not rendered; the binary defaults to 1s.
   outboxRelayInterval: ""
@@ -138,8 +140,10 @@ config:
   # listener. Empty = not rendered; the binary defaults to 5s.
   shutdownDrainDelay: ""
 
-# The chart refuses to render unless database.url or database.existingSecret
-# is set (templates/_helpers.tpl: product-master.requireDatabase).
+# MANDATORY (ADR 0010: Postgres is the only runtime). The chart refuses to
+# render unless database.url or database.existingSecret is set
+# (templates/_helpers.tpl: product-master.requireDatabase); cmd/api and cmd/mcp
+# exit at boot without DATABASE_URL, there is no in-memory mode.
 database:
   url: ""
   existingSecret: ""
@@ -153,12 +157,16 @@ database:
   # still starts the pod: the binary falls back to DATABASE_URL.
   migrationsExistingSecretKey: "MIGRATIONS_DATABASE_URL"
 
-# KAFKA_BROKERS is only set in the api container env when kafka.enabled is
-# true. Without it EVENT_PUBLISHER must stay "log". Produced topic:
-# warehouse.product-master.events.
+# MANDATORY (ADR 0010: Kafka is the only runtime). kafka.brokers (KAFKA_BROKERS,
+# comma-separated) has NO default: the chart refuses to render without it
+# (product-master.requireKafka) and cmd/api exits at boot without it. Produced
+# topics: warehouse.product-master.events and warehouse.product-master.analytics
+# (the cluster broker auto-creates them on the first write; infrastructure
+# declares none and /readyz does not depend on them). `kafka.enabled` is NOT a
+# switch any more: it is accepted only so values written before ADR 0010 (warehouse-infra
+# sets `enabled: true`) keep rendering; `false` is refused.
 kafka:
-  enabled: false
-  brokers: "kafka:9092"
+  brokers: ""
 
 # OpenTelemetry traces + metrics, pushed over OTLP/gRPC to a Collector. The
 # endpoint below is the in-cluster Collector Service in the warehouse-infra
@@ -175,8 +183,11 @@ extraEnv: []
 # (internal/bootretry: 5 attempts, 1+2+4+8 = 15 s of backoff in total, no
 # sleep after the last attempt). periodSeconds * failureThreshold gives a ~60s window
 # before the kubelet gives up. Once startupProbe succeeds, liveness takes
-# over; readiness uses the separate /readyz endpoint (flipped to not-ready as
-# the FIRST step of graceful shutdown).
+# over; readiness uses the separate /readyz endpoint: the drain gate (flipped
+# to not-ready as the FIRST step of graceful shutdown) AND a Postgres ping AND
+# a Kafka broker metadata check, cached 3 s and bounded to 2 s inside the
+# binary, hence a probe timeout above 2 s and a failure budget of 3 so a
+# broker blip does not flap the pod.
 startupProbe:
   httpGet:
     path: /healthz
@@ -190,6 +201,7 @@ livenessProbe:
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10
+  failureThreshold: 3
 
 readinessProbe:
   httpGet:
@@ -197,6 +209,8 @@ readinessProbe:
     port: http
   initialDelaySeconds: 3
   periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
 
 # Room for the binary's graceful shutdown: SHUTDOWN_DRAIN_DELAY (default 5s)
 # + HTTP drain (10s) + outbox relay drain (10s), sequential, worst case ~25s.
@@ -250,9 +264,10 @@ mcp:
 # /reports/freshness read-only from it. DISABLED by default (the default
 # render is unchanged). Enabling it renders component=analytics-projector
 # (Deployment) and component=analytics-reports (Deployment + Service
-# <release>-reports), plus the analytics Secret. Requires kafka.enabled and a
-# DSN source (the chart refuses to render otherwise); events only flow when
-# config.eventPublisher is "kafka".
+# <release>-reports), plus the analytics Secret. Requires a DSN source and a
+# consumer group (the chart refuses to render otherwise); the broker is the
+# mandatory kafka.brokers and events always flow (the publisher is always
+# kafka, ADR 0010).
 analytics:
   enabled: false
   database:
@@ -272,7 +287,8 @@ analytics:
     # id in the same transaction.
     replicaCount: 1
     adminAddr: ":8091"                  # ADMIN_ADDR (/healthz, /readyz)
-    # ANALYTICS_CONSUMER_GROUP: the projector's FIXED consumer group. A stable
+    # ANALYTICS_CONSUMER_GROUP: the projector's FIXED consumer group, REQUIRED
+    # (no default in the binary; the chart refuses to render it empty). A stable
     # id lets a rescheduled pod resume from its committed offsets; a brand-new
     # group starts at the earliest offset and rebuilds the model from history.
     consumerGroup: "product-master-analytics"

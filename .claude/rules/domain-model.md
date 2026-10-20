@@ -18,8 +18,9 @@ paths:
   non-empty, no duplicates), `TemperatureClass` (`Ambient`/`Chilled`/`Frozen`,
   required iff `TemperatureSensitive`), `DOTHazardClass` (1-9, optional, only
   with `Hazmat`). Inherited unchanged from inventory-storage ADR 0009/0010.
-- **ClassificationSource**: `native` (authored here) or `legacy-import`
-  (imported from inventory-storage during the migration, ADR 0003).
+- **ClassificationSource**: `native` (authored here; every write since ADR 0003
+  stage E) or `legacy-import` (stored rows the removed importer wrote before
+  stage E).
 - **UnitDimensions**: length, width, height in whole mm (1..20000 each) and
   weight in whole g (1..2000000); `Volume` = l x w x h in mm3.
 - **Declared dimensions**: vendor/steward supplied UnitDimensions.
@@ -36,8 +37,9 @@ paths:
   Commands return the raised domain events; a command that changes nothing
   returns no event and leaves `Version` unchanged. Rules: recording a
   measurement older than the current one is `ErrStaleMeasurement`;
-  `MeasuredAt` after the clock's now is `ErrMeasuredAtInFuture`; a legacy
-  import never replaces a `native` classification.
+  `MeasuredAt` after the clock's now is `ErrMeasuredAtInFuture`; confirming a
+  `legacy-import` classification through `Classify` makes it `native` (a
+  change).
 
 ## Domain events (all carry SKU + Version)
 
@@ -52,8 +54,6 @@ paths:
 - `RegisterProduct`: create (201) or change description (200).
 - `ClassifyProduct`: set/replace classification (`native`); 404 if not registered.
 - `DeclareDimensions`, `RecordMeasurement`: physical profile; 404 if not registered.
-- `ImportLegacyClassification`: migration only (ADR 0003): register unknown SKU,
-  skip when the current classification is `native`, no-op when identical.
 - `GetProduct`, `ListProducts`: reads (cursor pagination by SKU).
 
 Every write: load, apply the command, save with the loaded version as the

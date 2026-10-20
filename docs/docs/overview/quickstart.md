@@ -9,7 +9,7 @@ sidebar_label: Quickstart
 From a fresh clone to a running `product-master` with data in it. Every
 command below was taken from the `Makefile`, the four `cmd/*/main.go` files and
 `apis/openapi.yaml`; the request and response examples were captured from a
-local `cmd/api` run on in-memory adapters.
+local `cmd/api` run.
 
 ## Prerequisites
 
@@ -23,7 +23,10 @@ local `cmd/api` run on in-memory adapters.
 | Node.js | 20 for the docs site, 22 for `web/` | `docs/` and the `productmaster_mfe` remote |
 
 There is no `docker-compose.yml` in this repo and no `make run` target: the
-binaries are started with `go run`.
+binaries are started with `go run`. They run on **real Postgres and real
+Kafka only** ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)):
+there is no in-memory mode and no log sink, and a binary started without its
+mandatory variables exits at once, naming the variable.
 
 ## Build and test
 
@@ -38,27 +41,51 @@ make integration  # go test -tags=integration ./... -race -count=1 (Docker requi
 `make help` prints every target. The [testing page](/docs/development/testing)
 explains what each one covers.
 
-## Run the REST API with no dependencies
+## Run the REST API
 
-Without `DATABASE_URL` the API uses in-memory adapters, and without
-`EVENT_PUBLISHER=kafka` the outbox relay only logs each event:
+`cmd/api` needs a Postgres (`DATABASE_URL`) and a Kafka broker
+(`KAFKA_BROKERS`). Start a Postgres, and use the cluster broker (see
+[Kafka](#kafka-the-broker)):
 
 ```bash
+docker run -d --name pm-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16-alpine
+export DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable'
+export KAFKA_BROKERS=localhost:9092
 go run ./cmd/api   # listens on :8080
 ```
 
-The first log lines tell you which mode you are in:
+`cmd/api` runs the embedded migrations
+(`internal/adapters/outbound/postgres/migrations`) on every start, so the
+tables `products`, `outbox_events` and `processed_events` appear on the first
+boot. Nothing else needs to be applied by hand. Without `DATABASE_URL` or
+`KAFKA_BROKERS` it exits with status 1 before binding the port, reporting every
+missing variable at once:
 
 ```text
-{"level":"INFO","msg":"DATABASE_URL not configured; using in-memory adapters"}
-{"level":"INFO","msg":"LEGACY_IMPORT_CONSUMER_GROUP not set; legacy classification importer not started"}
-{"level":"INFO","msg":"outbox relay running","publisher":"log","interval":1000000000,"topics":["warehouse.product-master.events","warehouse.product-master.analytics"]}
+{"level":"ERROR","msg":"service exited with error","error":"invalid configuration: DATABASE_URL is required: this context runs on real Postgres\nKAFKA_BROKERS is required: this context runs on real Kafka"}
+```
+
+The boot logs confirm the wiring:
+
+```text
+{"level":"INFO","msg":"postgres adapters configured"}
+{"level":"INFO","msg":"kafka topics","brokers":["localhost:9092"],"produces":["warehouse.product-master.events","warehouse.product-master.analytics"],"consumes":[],"note":"this service never creates topics; the broker auto-creates them on the first write and readiness does not depend on them"}
+{"level":"INFO","msg":"outbox relay running","interval":1000000000,"max_attempts":20,"brokers":["localhost:9092"],"topics":["warehouse.product-master.events","warehouse.product-master.analytics"]}
 ```
 
 Without an OpenTelemetry Collector on `localhost:4317` you will also see an
 INFO line `traces export: exporter export timeout ... connection refused`
 every few seconds. It is harmless (export is non-blocking); point
 `OTEL_EXPORTER_OTLP_ENDPOINT` at a collector to make it stop.
+
+## Kafka (the broker)
+
+The fleet has **one** Kafka broker: the in-cluster broker of the kind cluster,
+reachable from your machine at `localhost:9092` through its external access
+listener. There is no docker-compose Kafka any more. The relay writes to
+`warehouse.product-master.events` and `warehouse.product-master.analytics`; the
+broker auto-creates both topics on the first write, and `/readyz` does not wait
+for them.
 
 ## First calls (seeding)
 
@@ -68,7 +95,7 @@ product must be registered before it can be classified or dimensioned.
 ```bash
 # Liveness and readiness
 curl -s localhost:8080/healthz        # {"status":"ok"}
-curl -s localhost:8080/readyz         # {"status":"ready"}
+curl -s localhost:8080/readyz         # {"status":"ready"}; 503 problem+json naming postgres or kafka when one is unreachable
 
 # Register a SKU: 201 the first time, 200 on a repeat (description replaced or unchanged)
 curl -s -X PUT localhost:8080/products/SKU-1 \
@@ -103,12 +130,8 @@ The measurement call returned (captured from a local run):
 ```
 
 Every accepted change raises one event, written twice to the outbox (once per
-topic, same CloudEvents `id`), and the log sink prints both:
-
-```text
-{"msg":"event published (log sink)","topic":"warehouse.product-master.events","type":"com.warehouse.wms.product-master.product.ProductMeasured","subject":"SKU-1","id":"a59b9dcb-..."}
-{"msg":"event published (log sink)","topic":"warehouse.product-master.analytics","type":"com.warehouse.wms.product-master.product.ProductMeasured","subject":"SKU-1","id":"a59b9dcb-..."}
-```
+topic, same CloudEvents `id`), and the relay publishes both to Kafka. Read
+them back with any consumer on `warehouse.product-master.events`.
 
 Errors are RFC 7807 problem documents, for example an older measurement:
 
@@ -125,44 +148,15 @@ Valid handling tags are `Hazmat`, `Fragile`, `TemperatureSensitive`,
 (1..9) is only allowed with `Hazmat`. The full contract is the generated
 [API reference](/docs/api-reference).
 
-## Run against a local Postgres
-
-```bash
-docker run -d --name pm-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16-alpine
-export DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable'
-go run ./cmd/api
-```
-
-`cmd/api` runs the embedded migrations
-(`internal/adapters/outbound/postgres/migrations`) on every start, so the
-tables `products`, `outbox_events` and `processed_events` appear on the first
-boot. Nothing else needs to be applied by hand.
-
-## Publish to Kafka
-
-The fleet has **one** Kafka broker: the in-cluster broker of the kind cluster,
-reachable from your machine at `localhost:9092` through its external access
-listener. There is no docker-compose Kafka any more.
-
-```bash
-EVENT_PUBLISHER=kafka KAFKA_BROKERS=localhost:9092 go run ./cmd/api
-```
-
-The relay then writes to `warehouse.product-master.events` and
-`warehouse.product-master.analytics` (topics are auto-created). To also run
-the legacy importer (ADR 0003, migration only), add
-`LEGACY_IMPORT_CONSUMER_GROUP=<a-stable-group-id>`; it reads
-`warehouse.inventory.events`.
-
 ## Run the MCP server
 
 ```bash
 DATABASE_URL="$DATABASE_URL" go run ./cmd/mcp   # :8090, Streamable HTTP at / and /mcp
 ```
 
-Give it the same `DATABASE_URL` as `cmd/api`: without one it uses its own,
-empty, in-memory repository and every lookup returns `product-not-found`. A
-raw session with curl:
+Give it the same `DATABASE_URL` as `cmd/api`; without one it exits with
+`service exited with error` / `DATABASE_URL is required: this context runs on
+real Postgres`. A raw session with curl:
 
 ```bash
 curl -s -D - -X POST localhost:8090/mcp \
@@ -184,14 +178,15 @@ and the Kafka broker:
 ```bash
 docker exec pm-postgres createdb -U postgres product_master_analytics
 export ANALYTICS_DATABASE_URL='postgres://postgres:postgres@localhost:5432/product_master_analytics?sslmode=disable'
-KAFKA_BROKERS=localhost:9092 go run ./cmd/product-projector   # admin :8091 (/healthz, /readyz)
+KAFKA_BROKERS=localhost:9092 ANALYTICS_CONSUMER_GROUP=product-master-analytics \
+  go run ./cmd/product-projector   # admin :8091 (/healthz, /readyz)
 go run ./cmd/product-reports                                   # :8092
 curl -s localhost:8092/reports/freshness
 curl -s 'localhost:8092/reports/master-data-quality?from=2026-10-01T00:00:00Z&to=2026-10-09T00:00:00Z'
 ```
 
-Events reach the projector only when `cmd/api` runs with
-`EVENT_PUBLISHER=kafka`.
+Events reach the projector through the relay of `cmd/api`; the projector exits
+at boot without `ANALYTICS_CONSUMER_GROUP` (no default).
 
 ## Run the console remote
 

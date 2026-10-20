@@ -2,18 +2,29 @@
 // into adapters, adapters into use cases, and use cases into the HTTP router
 // and the outbox relay.
 //
+// Postgres and Kafka are the ONLY runtime (ADR 0010): there is no in-memory
+// mode, no log sink and no optional relay. A missing mandatory variable is a
+// boot error naming it, raised before the listener binds. The service never
+// creates topics through an admin API: the cluster broker auto-creates them
+// on first write (the relay's writer sets AllowAutoTopicCreation) and
+// infrastructure declares none.
+//
 // Environment:
 //
-//	HTTP_ADDR                     listen address (default :8080)
-//	DATABASE_URL                  Postgres DSN; unset = in-memory adapters
+//	DATABASE_URL                  REQUIRED. Postgres DSN
 //	MIGRATIONS_DATABASE_URL       direct DSN for the boot migrations (default DATABASE_URL)
-//	EVENT_PUBLISHER               kafka | log (default log)
-//	KAFKA_BROKERS                 comma-separated brokers (EVENT_PUBLISHER=kafka)
+//	KAFKA_BROKERS                 REQUIRED. Comma-separated brokers
+//	EVENT_PUBLISHER               kafka (default). log is REJECTED at boot
+//	HTTP_ADDR                     listen address (default :8080)
 //	OUTBOX_RELAY_INTERVAL         relay poll interval (Go duration or seconds, default 1s)
 //	OUTBOX_MAX_ATTEMPTS           failures before the relay excludes a row (default 20, 0 = unlimited)
 //	OTEL_EXPORTER_OTLP_ENDPOINT   OTLP/gRPC collector (default localhost:4317)
 //	SHUTDOWN_DRAIN_DELAY          wait after flipping /readyz before closing (default 5s)
 //	LOG_LEVEL, SERVICE_VERSION, ENVIRONMENT, CORS_ALLOWED_ORIGINS
+//
+// /readyz is the drain gate AND a Postgres ping AND a Kafka metadata check
+// (a broker answers a metadata request that names no topic: reachability
+// only, never topics), cached for a few seconds. /healthz is liveness only.
 package main
 
 import (
@@ -24,21 +35,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
 	inboundhttp "github.com/claudioed/product-master/internal/adapters/inbound/http"
-	"github.com/claudioed/product-master/internal/adapters/outbound/clock"
 	outboundkafka "github.com/claudioed/product-master/internal/adapters/outbound/kafka"
-	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
-	outboxrelay "github.com/claudioed/product-master/internal/adapters/outbound/outbox"
-	"github.com/claudioed/product-master/internal/adapters/outbound/postgres"
 	"github.com/claudioed/product-master/internal/adapters/outbound/telemetry"
-	"github.com/claudioed/product-master/internal/application/ports"
-	"github.com/claudioed/product-master/internal/application/usecases"
-	"github.com/claudioed/product-master/internal/bootretry"
 )
 
 // shutdownTimeout bounds the HTTP server's graceful drain.
@@ -48,22 +50,24 @@ const shutdownTimeout = 10 * time.Second
 // after its context is cancelled.
 const workerDrainTimeout = 10 * time.Second
 
-// DefaultShutdownDrainDelay is how long shutdown waits, after flipping
-// /readyz to not-ready, before closing the listener (SHUTDOWN_DRAIN_DELAY
-// overrides it; "0" disables it).
-const DefaultShutdownDrainDelay = 5 * time.Second
-
 func main() {
-	if err := run(); err != nil {
+	if err := run(context.Background()); err != nil {
 		slog.Error("service exited with error", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+// run boots the service and serves until SIGINT/SIGTERM or until ctx is
+// cancelled (the in-process tests stop it that way), then shuts down in the
+// fleet order. It reads the whole configuration from the environment.
+func run(ctx context.Context) error {
 	logger := newLogger(getenv("LOG_LEVEL", "info"))
 	slog.SetDefault(logger)
 
+	cfg, err := loadBootConfig()
+	if err != nil {
+		return err
+	}
 	otelShutdown, err := setupTelemetry(logger)
 	if err != nil {
 		return err
@@ -71,12 +75,13 @@ func run() error {
 	defer otelShutdown()
 
 	// closeAdapters (pool.Close) is deferred FIRST so it runs LAST, after
-	// the HTTP drain, the importer and the relay have all stopped.
-	ad, closeAdapters, err := buildAdapters(context.Background(), os.Getenv("DATABASE_URL"), logger)
+	// the HTTP drain and the relay have stopped.
+	ad, closeAdapters, err := buildAdapters(ctx, cfg.databaseURL, cfg.migrationsURL, logger)
 	if err != nil {
 		return err
 	}
 	defer closeAdapters()
+	logTopics(logger, cfg.brokers)
 
 	metrics, err := telemetry.NewMetricsHandler()
 	if err != nil {
@@ -88,205 +93,27 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("product metrics: %w", err)
 	}
-	readiness := &inboundhttp.Readiness{}
+	readiness := buildReadiness(ad, outboundkafka.NewBrokerCheck(cfg.brokers).Check)
 	httpServer := &http.Server{
 		Addr:              getenv("HTTP_ADDR", ":8080"),
 		Handler:           inboundhttp.NewRouter(buildServer(ad, readiness, metrics, productMetrics)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	relay, closeRelay, err := startOutboxRelay(ad.outboxStore, logger)
+	relay, stopRelay, err := startOutboxRelay(ad.outboxStore, cfg.brokers, logger)
 	if err != nil {
 		return err
 	}
-	return serveUntilSignal(logger, httpServer, readiness, relay, closeRelay)
+	return serveUntilSignal(ctx, logger, httpServer, readiness, relay, stopRelay)
 }
 
-// adapters is the set of outbound adapters the composition root wires.
-type adapters struct {
-	products    ports.ProductRepository
-	outbox      ports.OutboxRepository
-	outboxStore outboxrelay.Store
-	processed   ports.ProcessedEvents
-	uow         ports.UnitOfWork
-}
-
-// writer bundles the ports every write use case needs. The FanoutEncoder
-// writes each event to the integration AND the analytics topic (two outbox
-// rows, one CloudEvents id, one transaction; ADR 0006).
-func (a adapters) writer() usecases.Writer {
-	return usecases.Writer{Products: a.products, Outbox: a.outbox, Encoder: outboundkafka.NewFanoutEncoder(), UoW: a.uow, Clock: clock.System{}}
-}
-
-func buildServer(ad adapters, readiness *inboundhttp.Readiness, metrics http.Handler, productMetrics ports.ProductMetrics) *inboundhttp.Server {
-	w := ad.writer()
-	return &inboundhttp.Server{
-		RegisterProduct:   &usecases.RegisterProduct{Writer: w, Metrics: productMetrics},
-		ClassifyProduct:   &usecases.ClassifyProduct{Writer: w},
-		DeclareDimensions: &usecases.DeclareDimensions{Writer: w},
-		RecordMeasurement: &usecases.RecordMeasurement{Writer: w},
-		GetProduct:        &usecases.GetProduct{Products: ad.products},
-		ListProducts:      &usecases.ListProducts{Products: ad.products},
-		Readiness:         readiness,
-		Metrics:           metrics,
-	}
-}
-
-// buildAdapters wires Postgres when databaseURL is set (running the
-// embedded migrations first) or in-memory adapters otherwise.
-func buildAdapters(ctx context.Context, databaseURL string, logger *slog.Logger) (adapters, func(), error) {
-	noop := func() {}
-	if databaseURL == "" {
-		logger.Info("DATABASE_URL not configured; using in-memory adapters")
-		products, ob, processed := memory.NewProductRepo(), memory.NewOutboxRepo(), memory.NewProcessedEventRepo()
-		return adapters{
-			products: products, outbox: ob, outboxStore: ob, processed: processed,
-			uow: memory.NewUnitOfWork(products, ob, processed),
-		}, noop, nil
-	}
-
-	// The first outbound dial of an injected pod can be reset (Istio native
-	// sidecars), so migrations and the first ping retry with backoff; on
-	// exhaustion the LAST error is returned and the process refuses to boot.
-	migrationsURL := migrationsDatabaseURL(databaseURL)
-	if err := bootretry.Retry(ctx, logger, "run migrations", func() error {
-		return postgres.RunMigrations(migrationsURL)
-	}); err != nil {
-		return adapters{}, noop, err
-	}
-	pool, err := postgres.NewPool(ctx, databaseURL)
-	if err != nil {
-		return adapters{}, noop, err
-	}
-	if err := bootretry.Retry(ctx, logger, "ping postgres", func() error { return pool.Ping(ctx) }); err != nil {
-		pool.Close()
-		return adapters{}, noop, err
-	}
-	logger.Info("postgres adapters configured")
-	ob := postgres.NewOutboxRepo(pool)
-	return adapters{
-		products: postgres.NewProductRepo(pool), outbox: ob, outboxStore: ob,
-		processed: postgres.NewProcessedEventRepo(pool), uow: postgres.NewUnitOfWork(pool),
-	}, pool.Close, nil
-}
-
-// migrationsDatabaseURL returns MIGRATIONS_DATABASE_URL when set (a direct
-// DSN: golang-migrate's advisory lock does not survive PgBouncer transaction
-// pooling), else databaseURL.
-func migrationsDatabaseURL(databaseURL string) string {
-	return getenv("MIGRATIONS_DATABASE_URL", databaseURL)
-}
-
-// worker is a started background loop and the channel closed once it
-// returned.
-type worker struct {
-	name string
-	done chan struct{}
-}
-
-// Event publisher modes (EVENT_PUBLISHER).
-const (
-	publisherLog   = "log"
-	publisherKafka = "kafka"
-)
-
-// parsePublisherMode validates EVENT_PUBLISHER ("" and "log" = log sink).
-func parsePublisherMode(raw string) (string, error) {
-	switch raw {
-	case "", publisherLog:
-		return publisherLog, nil
-	case publisherKafka:
-		return publisherKafka, nil
-	default:
-		return "", fmt.Errorf("unknown EVENT_PUBLISHER %q (want kafka or log)", raw)
-	}
-}
-
-// parseRelayInterval reads OUTBOX_RELAY_INTERVAL (Go duration or plain
-// seconds), defaulting when unset, malformed or non-positive.
-func parseRelayInterval(raw string, logger *slog.Logger) time.Duration {
-	if raw == "" {
-		return outboxrelay.DefaultInterval
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil {
-		if secs, serr := strconv.ParseFloat(raw, 64); serr == nil {
-			d, err = time.Duration(secs*float64(time.Second)), nil
-		}
-	}
-	if err != nil || d <= 0 {
-		logger.Warn("invalid OUTBOX_RELAY_INTERVAL; using the default", "value", raw, "default", outboxrelay.DefaultInterval)
-		return outboxrelay.DefaultInterval
-	}
-	return d
-}
-
-// outboxMaxAttempts reads OUTBOX_MAX_ATTEMPTS (gap fix D12, ADR 0007): how
-// many times an outbox row may fail before the relay excludes it from
-// claims. Unset = the fleet default (20); 0 = unlimited; negative or
-// unparsable values log a warning and use the default, so a typo never
-// silently removes the cap.
-func outboxMaxAttempts(raw string, logger *slog.Logger) int {
-	if raw == "" {
-		return outboxrelay.DefaultMaxAttempts
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 {
-		logger.Warn("invalid OUTBOX_MAX_ATTEMPTS; using the default", "value", raw, "default", outboxrelay.DefaultMaxAttempts)
-		return outboxrelay.DefaultMaxAttempts
-	}
-	return n
-}
-
-// startOutboxRelay starts the relay goroutine with the EVENT_PUBLISHER sink.
-// Kafka is dialled lazily on the first send, never here.
-func startOutboxRelay(store outboxrelay.Store, logger *slog.Logger) (*worker, func(), error) {
-	mode, err := parsePublisherMode(os.Getenv("EVENT_PUBLISHER"))
-	if err != nil {
-		return nil, nil, err
-	}
-	var (
-		sink      outboxrelay.Sink = outboxrelay.LogSink{Logger: logger}
-		closeSink                  = func() {}
-	)
-	if mode == publisherKafka {
-		raw := os.Getenv("KAFKA_BROKERS")
-		if raw == "" {
-			return nil, nil, errors.New("EVENT_PUBLISHER=kafka requires KAFKA_BROKERS")
-		}
-		kafkaSink := outboundkafka.NewRelaySink(strings.Split(raw, ","))
-		sink = kafkaSink
-		closeSink = func() {
-			if err := kafkaSink.Close(); err != nil {
-				logger.Error("kafka relay sink close failed", "error", err)
-			}
-		}
-	}
-	interval := parseRelayInterval(os.Getenv("OUTBOX_RELAY_INTERVAL"), logger)
-	maxAttempts := outboxMaxAttempts(os.Getenv("OUTBOX_MAX_ATTEMPTS"), logger)
-	relay := outboxrelay.NewRelay(store, sink, logger, outboxrelay.WithInterval(interval), outboxrelay.WithMaxAttempts(maxAttempts))
-
-	ctx, stop := context.WithCancel(context.Background())
-	w := &worker{name: "outbox-relay", done: make(chan struct{})}
-	go func() {
-		defer close(w.done)
-		defer closeSink()
-		logger.Info("outbox relay running", "publisher", mode, "interval", interval, "max_attempts", maxAttempts,
-			"topics", []string{outboundkafka.Topic, outboundkafka.AnalyticsTopic})
-		if err := relay.Run(ctx); !errors.Is(err, context.Canceled) {
-			logger.Error("outbox relay stopped", "error", err)
-		}
-	}()
-	return w, stop, nil
-}
-
-// serveUntilSignal runs httpServer until SIGINT/SIGTERM (or a listen error),
-// then shuts down in the fleet order: (1) /readyz flips to 503, (2) wait the
-// drain delay, (3) drain HTTP, (4) stop and await the relay LAST so nothing
-// committed above is stranded; the caller's deferred pool.Close runs after
-// all of it.
-func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness,
-	relay *worker, closeRelay func(),
+// serveUntilSignal runs httpServer until SIGINT/SIGTERM, until ctx is
+// cancelled, or until a listen error, then shuts down in the fleet order: (1)
+// /readyz flips to 503, (2) wait the drain delay, (3) drain HTTP, (4) stop and
+// await the relay LAST so nothing committed above is stranded; the caller's
+// deferred pool.Close runs after all of it.
+func serveUntilSignal(ctx context.Context, logger *slog.Logger, httpServer *http.Server, readiness *inboundhttp.Readiness,
+	relay *worker, stopRelay func(),
 ) error {
 	errCh := make(chan error, 1)
 	go func() {
@@ -296,13 +123,14 @@ func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *i
 		}
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	select {
 	case err := <-errCh:
-		closeRelay()
+		stopRelay()
+		await(logger, relay)
 		return err
-	case <-ctx.Done():
+	case <-sigCtx.Done():
 	}
 
 	readiness.SetNotReady()
@@ -314,7 +142,7 @@ func serveUntilSignal(logger *slog.Logger, httpServer *http.Server, readiness *i
 	defer cancel()
 	err := httpServer.Shutdown(shutdownCtx)
 
-	closeRelay()
+	stopRelay()
 	await(logger, relay)
 	return err
 }
@@ -329,21 +157,6 @@ func await(logger *slog.Logger, w *worker) {
 	case <-time.After(workerDrainTimeout):
 		logger.Warn("worker did not stop before the shutdown drain deadline", "worker", w.name)
 	}
-}
-
-// shutdownDrainDelay reads SHUTDOWN_DRAIN_DELAY ("0" disables; unset,
-// negative or unparsable = the default).
-func shutdownDrainDelay(logger *slog.Logger) time.Duration {
-	raw := os.Getenv("SHUTDOWN_DRAIN_DELAY")
-	if raw == "" {
-		return DefaultShutdownDrainDelay
-	}
-	d, err := time.ParseDuration(raw)
-	if err != nil || d < 0 {
-		logger.Warn("ignoring invalid SHUTDOWN_DRAIN_DELAY", "value", raw, "default", DefaultShutdownDrainDelay.String())
-		return DefaultShutdownDrainDelay
-	}
-	return d
 }
 
 // setupTelemetry installs the OTLP trace and metric providers (never blocks
@@ -363,28 +176,4 @@ func setupTelemetry(logger *slog.Logger) (func(), error) {
 			logger.Error("telemetry shutdown failed", "error", err)
 		}
 	}, nil
-}
-
-// newLogger builds the JSON logger; LOG_LEVEL debug|info|warn|warning|error
-// (case-insensitive; "warning" is accepted like "warn" fleet-wide).
-func newLogger(level string) *slog.Logger {
-	var lvl slog.Level
-	switch strings.ToLower(level) {
-	case "debug":
-		lvl = slog.LevelDebug
-	case "warn", "warning":
-		lvl = slog.LevelWarn
-	case "error":
-		lvl = slog.LevelError
-	default:
-		lvl = slog.LevelInfo
-	}
-	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}))
-}
-
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

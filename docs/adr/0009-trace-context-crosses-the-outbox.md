@@ -6,6 +6,9 @@ Accepted (2026-10-13, ecosystem gap fix D27). Additive: no migration (the
 existing `outbox_events.headers jsonb` column carries it), optional Kafka
 headers only; payloads and the CloudEvents envelope
 ([ADR 0004](./0004-cloudevents-envelope-and-type-catalogue.md)) are unchanged.
+Point 5 (in-memory outbox without `DATABASE_URL`) is moot since
+[ADR 0010](./0010-postgres-and-kafka-are-the-only-runtime.md): no binary runs
+on the memory adapters any more.
 
 ## Context
 

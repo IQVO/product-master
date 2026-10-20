@@ -1,8 +1,9 @@
-// Package main_test hosts the godog (Cucumber for Go) acceptance suite. It
-// drives the REAL chi router over HTTP with the in-memory adapters, wired
-// the way cmd/api wires them, so every scenario in features/*.feature is a
-// black-box test of the service.
-package main_test
+// Package features_test hosts the godog (Cucumber for Go) acceptance suite.
+// It drives the REAL chi router over HTTP with the in-memory adapters (test
+// doubles; the shipped binary never imports them), wired the way cmd/api
+// wires the use cases, so every scenario in the *.feature files next to it
+// is a black-box test of the service.
+package features_test
 
 import (
 	"context"
@@ -25,13 +26,13 @@ import (
 	"github.com/claudioed/product-master/internal/application/usecases"
 )
 
-// TestFeatures runs every Gherkin feature under features/.
+// TestFeatures runs every Gherkin feature in this directory.
 func TestFeatures(t *testing.T) {
 	suite := godog.TestSuite{
 		ScenarioInitializer: InitializeScenario,
 		Options: &godog.Options{
 			Format:   "pretty",
-			Paths:    []string{"features"},
+			Paths:    []string{"."},
 			Strict:   true,
 			TestingT: t,
 		},

@@ -1,7 +1,7 @@
 // Package outbox is the transactional-outbox relay: a background loop that
 // drains unpublished outbox rows (written in the same transaction as the
-// aggregate) to a Sink -- Kafka in production (EVENT_PUBLISHER=kafka) or a
-// logger (the default, which keeps tests and local dev broker-free).
+// aggregate) to a Sink -- Kafka in every binary (ADR 0010: there is no log
+// sink); tests pass a recording sink.
 //
 // The shape mirrors warehouse-planning's (and workforce-management's) relay: drain
 // every interval (default 1s), a full batch is followed immediately by
@@ -157,24 +157,4 @@ func (r *Relay) Run(ctx context.Context) error {
 		case <-time.After(r.interval):
 		}
 	}
-}
-
-// LogSink is the EVENT_PUBLISHER=log sink: it logs each message instead of
-// sending it anywhere, so the outbox still drains and nothing needs a
-// broker.
-type LogSink struct {
-	Logger *slog.Logger
-}
-
-// Send logs msgs and reports success.
-func (s LogSink) Send(ctx context.Context, msgs ...outbox.Message) error {
-	logger := s.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-	for _, m := range msgs {
-		logger.InfoContext(ctx, "event published (log sink)",
-			"topic", m.Topic, "type", m.EventType, "subject", m.Subject, "id", m.EventID)
-	}
-	return nil
 }

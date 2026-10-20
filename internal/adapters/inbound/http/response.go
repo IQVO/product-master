@@ -54,6 +54,11 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 		slog.ErrorContext(r.Context(), "request failed", "error", err, "method", r.Method, "path", r.URL.Path)
 		detail = "an unexpected error occurred"
 	}
+	writeProblem(w, r, p, detail)
+}
+
+// writeProblem writes p as an RFC 7807 problem+json document with detail.
+func writeProblem(w http.ResponseWriter, r *http.Request, p problem, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(p.status)
 	_ = json.NewEncoder(w).Encode(problemDetail{

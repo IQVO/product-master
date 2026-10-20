@@ -46,7 +46,6 @@ flowchart LR
         direction TB
         in0(["Master-data steward,<br/>operator, dimensioning<br/>device, console<br/>(productmaster_mfe)"]):::actor
         in1["warehouse-ops-agent"]:::ctx
-        in2["inventory-storage (legacy<br/>backfill)"]:::ctx
     end
     subgraph BC["product-master - Supporting subdomain - WMS tier"]
         direction TB
@@ -59,12 +58,10 @@ flowchart LR
     in0 -.->|"qry - REST<br/>Get product, classification,<br/>physical profile, List<br/>products"| BC
     in0 -.->|"qry - REST (reports)<br/>Master data quality, freshness"| BC
     in1 -.->|"qry - MCP<br/>get_product, list_products,<br/>get_product_classification,<br/>get_physical_profile"| BC
-    in2 ==>|"evt - Kafka<br/>warehouse.inventory.events<br/>legacy ProductClassified"| BC
     linkStyle 0 stroke:#1971c2,stroke-width:1.5px
     linkStyle 1 stroke:#2f9e44,stroke-width:1.5px
     linkStyle 2 stroke:#2f9e44,stroke-width:1.5px
     linkStyle 3 stroke:#2f9e44,stroke-width:1.5px
-    linkStyle 4 stroke:#e8590c,stroke-width:2.5px
     class BC bc
 ```
 
@@ -126,8 +123,8 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | Axis | Verdict | Evidence |
 | --- | --- | --- |
 | Domain | **Supporting** | ADR 0001 "Classification"; see the [core domain chart](/docs/ddd/core-domain-chart) |
-| Business model | **Compliance and risk reduction**: it earns nothing itself; it keeps hazmat, temperature and fragile handling correct in every downstream flow | the four consumers use the classification for stow placement and segregation, intake routing, release capabilities and seal-time segregation |
-| Evolution | **Custom-built** (genesis) | Created 2026-10-06 (ADRs 0001-0004), migration from inventory-storage in progress (ADR 0003) |
+| Business model | **Compliance and risk reduction**: it earns nothing itself; it keeps hazmat, temperature and fragile handling correct in every downstream flow | five consumers use the classification (stow placement and segregation, intake routing, release capabilities, seal-time segregation, slot plans), and inbound-receiving uses the registered SKUs to accept ASN lines |
+| Evolution | **Custom-built** (genesis) | Created 2026-10-06 (ADRs 0001-0004); the migration from inventory-storage finished with stage E on 2026-10-17 (ADR 0003): product-master is the only producer of classifications |
 
 ## Domain Roles
 
@@ -153,6 +150,13 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | `warehouse-console` (hosting `productmaster_mfe`) | All of the REST rows above | Command / Query | REST through Kong `/api/product-master` | OHS; the remote is this context's own code (`web/`) |
 | Operator | Master data quality, freshness | Query | REST `GET /reports/master-data-quality`, `GET /reports/freshness` on `cmd/product-reports` (no console screen or agent uses it yet) | Own data product (ADR 0006) |
 
+No Kafka event flows in: the ADR 0003 legacy classification importer (inventory-storage's
+`com.warehouse.wms.inventory-storage.product.ProductClassified` on
+`warehouse.inventory.events`) was removed at stage E, and inventory-storage
+stopped publishing that type in the same stage. The only inbound Kafka consumer
+in the repository is `cmd/product-projector`, which reads this context's own
+analytics topic.
+
 No REST endpoint or MCP tool is authenticated (fleet-wide revert of
 2026-09-11). The MCP server is read-only: a governance test fails the build on
 any write-verb tool name (ADR 0005).
@@ -165,7 +169,7 @@ outbox and the relay in `cmd/api`.
 
 | Collaborator | Message | Type | Channel | Relationship |
 | --- | --- | --- | --- | --- |
-| `inventory-storage`, `order-management`, `wes-work-planning`, `fulfillment-execution`, `slotting-optimization` | `ProductClassified` | Event | Kafka `warehouse.product-master.events`, `com.warehouse.wms.product-master.product.ProductClassified` | This context upstream, OHS + Published Language; each consumer keeps a version-guarded local copy |
+| `inventory-storage`, `order-management`, `wes-work-planning`, `fulfillment-execution`, `slotting-optimization` | `ProductClassified` | Event | Kafka `warehouse.product-master.events`, `com.warehouse.wms.product-master.product.ProductClassified` | This context upstream, OHS + Published Language; each consumer keeps a version-guarded local copy. All five are built and wired in warehouse-infra (see the [context map](/docs/ddd/context-map)) |
 | `inbound-receiving` (its `known_skus` local copy) | `ProductRegistered` | Event | same topic, `com.warehouse.wms.product-master.product.ProductRegistered` | OHS + PL |
 | none today | `ProductDescriptionChanged` | Event | same topic, `...product.ProductDescriptionChanged` | OHS + PL |
 | `slotting-optimization` (its product copy) | `ProductDimensionsDeclared` | Event | same topic, `...product.ProductDimensionsDeclared` | OHS + PL |
@@ -196,7 +200,9 @@ Top terms: **Product**, **SKU**, **Classification**, **Handling tag**,
    (ADR 0002).
 7. A change that alters nothing raises no event and bumps no version; every
    event carries the version after the change (ADR 0004).
-8. A legacy import never overwrites a `native` classification (ADR 0003).
+8. Every classification is authored here (`native`); `legacy-import` survives
+   only on rows the ADR 0003 importer wrote before stage E, and confirming one
+   through `PUT /products/{sku}/classification` makes it `native`.
 9. DOT segregation rules are applied by the contexts that co-locate goods,
    not here (ADR 0001).
 
@@ -223,20 +229,22 @@ Top terms: **Product**, **SKU**, **Classification**, **Handling tag**,
   `TestPgtx_CommitsSaveAndOutboxAtomically`,
   `TestWiring_RegisterClassifyMeasureLifecycle`,
   `TestRelay_RealPostgresAndKafka_PublishesCloudEventsKeyedBySKU`,
-  `TestPublisher_RealKafka_CloudEventsEnvelopeAndPayload`,
-  `TestLegacyImporter_EndToEnd`); the REST and MCP wire contracts run against
+  `TestPublisher_RealKafka_CloudEventsEnvelopeAndPayload`); the REST and MCP wire contracts run against
   real Postgres too (`TestREST_*`, `TestStreamableHTTP_*`). See
   [Testing](/docs/development/testing).
-- Migration: ADR 0003's runbook compares the count of classified products
-  (`GET /products?classified=true`) with inventory-storage's
-  `product_classifications` row count.
+- Migration (done): before stage E, ADR 0003's precondition was that every
+  row of inventory-storage's `product_classifications` has a product-master
+  product (`GET /products?classified=true`). It was verified before the
+  importer was removed (ADR 0003, stage E executed 2026-10-17).
 - One business counter is emitted over OTLP: `product_master.products.registered`, by `outcome` (`created`, `description_changed`, `unchanged`).
 
 ## Open Questions
 
-- Which consumer will take the physical profile first (expected package
-  weight, slot fit, cube-based storage capacity; ADR 0002)?
-- When is migration stage E (importer and legacy type removed) run?
+- The physical profile has one consumer: slotting-optimization keeps a copy
+  from `ProductDimensionsDeclared` and `ProductMeasured` (its ADR 0003). The
+  uses ADR 0002 names are still unbuilt: no expected package weight in
+  fulfillment-execution, no slot-volume check in inventory-storage, no
+  cube-based capacity in warehouse-planning. Which comes next?
 - Should measurement history be kept (ADR 0002, Consequences)?
 - Should the discrepancy tolerance become per category?
 - Pack hierarchy, units of measure, lifecycle states and barcodes are out of

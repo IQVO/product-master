@@ -54,17 +54,16 @@ temperature and DOT rules inherited from inventory-storage ADRs 0009 and
   `ErrStaleMeasurement` and `ErrNotClassified`.
 - The non-trivial rules are few and small: latest-measurement-wins by
   `measuredAt`, the 10 % discrepancy in integer arithmetic, the effective
-  value fallback, "a legacy import never overwrites native", and "no change
-  means no event and no version bump".
+  value fallback, and "no change means no event and no version bump".
 - No cross-aggregate invariant, no long-running process, no computation over
   sets.
 
 ## Evolution
 
 **Custom-built, in genesis.** The context was decided and built on 2026-10-06
-(ADRs 0001 to 0004) and is still mid-migration: the legacy importer and
-`classificationSource` exist only to move ownership out of `inventory-storage`
-(ADR 0003). ADR 0001 lists a long out-of-scope backlog (pack hierarchy, units
+(ADRs 0001 to 0004). The migration out of `inventory-storage` (ADR 0003) is
+finished: the legacy importer was removed at stage E (2026-10-17), and
+`classificationSource` survives only to label the rows it imported. ADR 0001 lists a long out-of-scope backlog (pack hierarchy, units
 of measure, lot/serial/expiry policy, lifecycle states, barcodes), and that is
 where a commodity product-information product could later replace parts of
 it; the warehouse-specific handling taxonomy should stay custom.
