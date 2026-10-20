@@ -111,7 +111,7 @@ In the kind cluster Alloy ships them to Loki with the label
 | `outbox relay pass failed` | ERROR | `error` (contains `outbox row <id> (<type>)`) | api | A send failed; the row keeps `last_error` and is retried until it reaches the attempt cap. |
 | `outbox relay: row reached the attempt cap and is excluded from future claims; re-arm it with attempts = 0 after fixing the cause` | ERROR (once per row) | `outbox_id`, `topic`, `event_type`, `key`, `attempts`, `max_attempts`, `error` | api | The row failed `OUTBOX_MAX_ATTEMPTS` times and is no longer claimed ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); re-arm it per the runbook. |
 | `invalid OUTBOX_MAX_ATTEMPTS; using the default` | WARN | `value`, `default` | api | The env value was negative or not an integer; the cap is 20. |
-| `legacy classification importer handling failed; retrying the same message` (or `analytics consumer ...`, or `... offset commit failed; ...`) | ERROR | `error`, `partition`, `offset`, `attempt`, `retry_in` | api, projector | Transient failure; the partition is blocked until it succeeds. |
+| `analytics consumer handling failed; retrying the same message` (or `analytics consumer offset commit failed; retrying the same message`) | ERROR | `error`, `partition`, `offset`, `attempt`, `retry_in` | projector | Transient failure; the partition is blocked until it succeeds. |
 | `analytics consumer running` | INFO | `topic`, `group_id`, `brokers` | projector | Consumer started. |
 | `analytics: skipping message that is not a CloudEvents 1.0 event ...` | WARN | `topic`, `partition`, `offset`, `suppressed_since_last_warning` | projector | At most one line per minute. |
 | `analytics: dead-lettering a message that can never be projected` | ERROR | `error`, `dlq_topic`, `partition`, `offset` | projector | Poison message sent to the DLQ. |
@@ -119,7 +119,7 @@ In the kind cluster Alloy ships them to Loki with the label
 | `report query failed` | ERROR | `error`, `path` | reports | Analytical query failed (`500 report-store-error`). |
 | `mcp tool failed with an unexpected error` | ERROR | `error` | mcp | Tool answered `internal-error`. |
 | `shutdown: readiness flipped to not-ready; waiting for traffic to drain` | INFO | `drain_delay` | api | SIGTERM received. |
-| `worker did not stop before the shutdown drain deadline` | WARN | `worker` | api | Importer or relay exceeded 10s at shutdown. |
+| `worker did not stop before the shutdown drain deadline` | WARN | `worker` (`outbox-relay`, the only worker since the legacy importer was removed) | api | The relay exceeded 10s at shutdown. |
 
 ## Health endpoints
 
