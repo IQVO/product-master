@@ -8,9 +8,8 @@ paths:
 # Cross-service integration events (Kafka)
 
 This service PUBLISHES product master data on `warehouse.product-master.events`
-(through the transactional outbox) and, during the migration only (ADR 0003),
-CONSUMES inventory-storage's legacy `ProductClassified` from
-`warehouse.inventory.events`. It also writes every published event, in the
+(through the transactional outbox). It consumes no other context's topic (the
+ADR 0003 legacy importer was removed at stage E). It also writes every published event, in the
 same outbox transaction and under the same CloudEvents `id`, to its own
 analytics topic `warehouse.product-master.analytics`, consumed only by
 `cmd/product-projector` (ADR 0006; DLQ
@@ -87,16 +86,15 @@ are omitted when unset. Golden exact-JSON tests pin every type.
 
 ### Consumed types
 
-| `type` | topic | producer |
-| --- | --- | --- |
-| `com.warehouse.wms.inventory-storage.product.ProductClassified` | `warehouse.inventory.events` | inventory-storage (legacy, ADR 0003; removed at stage E) |
+None from another context. `cmd/product-projector` consumes this service's own
+`warehouse.product-master.analytics` (`ANALYTICS_CONSUMER_GROUP`).
 
 ## Consumer group id
 
-The group id comes from env (the retired ADR 0003 importer used `LEGACY_IMPORT_CONSUMER_GROUP`)
-(unset = importer not started). It is a STABLE group (at-least-once,
-`FetchMessage` + `CommitMessages` after the unit of work that claims the
-CloudEvents `id` and applies the import). Any consumer group id MUST be env-configurable, never a hardcoded string literal --
+The group id comes from env: the projector's `ANALYTICS_CONSUMER_GROUP` is
+required and has no default. It is a STABLE group (at-least-once,
+`FetchMessage` + `CommitMessages` after the event is applied or
+dead-lettered). Any consumer group id MUST be env-configurable, never a hardcoded string literal --
 `internal/architecture/fitness_test.go`'s
 TestKafkaConsumerGroupNeverHardcodedInline enforces this (a real incident:
 wes-work-planning's hardcoded group id let a locally-run e2e-tests process

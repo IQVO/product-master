@@ -24,14 +24,14 @@ question: stock lives in `inventory-storage`.
 | Property | Value |
 | --- | --- |
 | Subdomain classification | Supporting ([ADR 0001](/docs/adr/0001-product-master-bounded-context)) |
-| Tier | `wms` (CloudEvents type prefix `com.warehouse.wms.product-master.*`; the third `wms` context after `facility-layout` and `inventory-storage`) |
+| Tier | `wms` (CloudEvents type prefix `com.warehouse.wms.product-master.*`; with `facility-layout`, `inventory-storage`, `inbound-receiving`, `slotting-optimization` and `pick-face-replenishment`) |
 | Language / style | Go backend, hexagonal architecture (ports and adapters) |
-| Inbound adapters | REST (`cmd/api`, `:8080`), a read-only MCP server (`cmd/mcp`, `:8090`, [ADR 0005](/docs/adr/0005-mcp-server-adoption)) and, during the migration only, the legacy classification importer (Kafka) |
+| Inbound adapters | REST (`cmd/api`, `:8080`) and a read-only MCP server (`cmd/mcp`, `:8090`, [ADR 0005](/docs/adr/0005-mcp-server-adoption)); no Kafka consumer of another context (the ADR 0003 legacy importer was removed at stage E, 2026-10-17) |
 | Read side | Analytics stream, `cmd/product-projector` and `cmd/product-reports` (master data quality report, [ADR 0006](/docs/adr/0006-analytics-read-side)) |
 | UI | `productmaster_mfe` Module Federation remote (`web/`), hosted by the warehouse-console shell |
-| Deployed | kind cluster via warehouse-infra: Kong `/api/product-master`, web gateway `/mfes/product-master/`, in-cluster MCP and reports (see [Runtime surface](/docs/overview/context#runtime-surface), including the reports Kong route known issue) |
-| Integration | Kafka CloudEvents 1.0 (structured mode), transactional outbox for publishing |
-| Auth | None on REST (fleet-wide revert of 2026-09-11) |
+| Deployed | kind cluster via warehouse-infra: Kong `/api/product-master`, `/api/product-master/reports` and `/api/mcp/product-master`, web gateway `/mfes/product-master/` (see [Runtime surface](/docs/overview/context#runtime-surface)) |
+| Integration | Kafka CloudEvents 1.0 (structured mode), transactional outbox for publishing; six sibling contexts consume `warehouse.product-master.events` |
+| Auth | None on REST or MCP (fleet-wide revert of 2026-09-11) |
 
 :::note Study project
 Like the rest of the `warehouse-systems` fleet, this is a personal study
@@ -49,8 +49,9 @@ One aggregate, **Product**, identified by **SKU**:
   tags from a closed list, a `TemperatureClass` required if and only if the
   product is `TemperatureSensitive`, and an optional `DOTHazardClass` (1..9)
   allowed only with `Hazmat`. Each classification records its
-  **ClassificationSource**: `native` (authored here) or `legacy-import`
-  (imported from `inventory-storage` during the migration).
+  **ClassificationSource**: `native` (authored here; every write since the
+  migration ended) or `legacy-import` (imported from `inventory-storage`
+  before stage E and not re-classified since).
 - **PhysicalProfile**: declared unit dimensions, the latest measurement, and
   the derived *effective* values and *discrepancy* flag
   ([ADR 0002](/docs/adr/0002-physical-profile-declared-vs-measured)).
@@ -86,6 +87,6 @@ The domain:
 - [Physical profile](/docs/overview/physical-profile): declared versus measured, effective values and discrepancy.
 - [Use cases](/docs/ddd/use-cases) and [subdomain classification](/docs/ddd/subdomain-classification).
 - [DDD artifacts](/docs/ddd/ddd-artifacts): the ddd-crew pack (core domain chart, canvases, context map, EventStorming, class, ER and sequence diagrams).
-- [Downstream consumers](/docs/ecosystem/downstream-consumers) and the [legacy upstream contract](/docs/ecosystem/upstream-contracts).
+- [Downstream consumers](/docs/ecosystem/downstream-consumers) and [upstream contracts](/docs/ecosystem/upstream-contracts) (none since stage E; the retired legacy contract is kept as a record).
 - [API reference](/docs/api-reference): REST (generated from `apis/openapi.yaml`) and the event catalogue.
 - [Architecture decision records](/docs/adr): the index of every ADR with its status.

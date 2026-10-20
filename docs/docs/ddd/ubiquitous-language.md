@@ -23,8 +23,8 @@ in the last column.
 | **Handling tag** | One member of the closed set `Hazmat`, `Fragile`, `TemperatureSensitive`, `Oversized`, `HighValue`, reported in that stable order. | `HandlingTag`, `tagOrder`, `Tags()` | |
 | **Temperature class** | Storage band a `TemperatureSensitive` product needs: `Ambient`, `Chilled`, `Frozen`. Required iff `TemperatureSensitive`. | `TemperatureClass`, `NoTemperatureClass` | |
 | **DOT hazard class** | Top-level US DOT hazard class 1..9, optional, only with `Hazmat`. 0 means "not recorded". | `DOTHazardClass`, `NoDOTHazardClass` | Segregation rules are NOT owned here (ADR 0001) |
-| **Classification source** | Where a classification was authored: `native` (here) or `legacy-import` (from inventory-storage during the migration). | `ClassificationSource`, `SourceNative`, `SourceLegacyImport` | |
-| **Legacy import** | Applying an inventory-storage classification during the migration; never overwrites `native`. | `ImportLegacyClassification` (aggregate method and use case) | ADR 0003, removed at stage E |
+| **Classification source** | Where a classification was authored: `native` (here; every write since stage E) or `legacy-import` (written by the ADR 0003 importer before stage E and not re-classified since). | `ClassificationSource`, `SourceNative`, `SourceLegacyImport` | `classification_source` / `classificationSource` |
+| **Legacy import** | Historical: applying an inventory-storage classification during the migration, never overwriting `native`. | none any more: `ImportLegacyClassification` was removed at stage E (2026-10-17) | ADR 0003; only the `legacy-import` source value remains |
 | **Unit dimensions** | Length, width, height in whole mm (1..20000) and weight in whole g (1..2000000) of one unit. | `UnitDimensions`, `NewUnitDimensions` | |
 | **Volume** | `length x width x height` in mm3, orientation-free. | `VolumeMm3()` | `volume_mm3` / `volumeMm3` |
 | **Declared dimensions** | Vendor- or steward-supplied unit dimensions. | `PhysicalProfile.Declared()`, `DeclareDimensions` | REST `.../dimensions/declared` |
