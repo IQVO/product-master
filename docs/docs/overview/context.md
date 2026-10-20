@@ -30,30 +30,35 @@ flowchart LR
   OM["order-management<br/>Generic/Supporting"]
   WWP["wes-work-planning<br/>Core"]
   FE["fulfillment-execution<br/>Core"]
+  SO["slotting-optimization<br/>Supporting"]
+  IR["inbound-receiving<br/>Supporting"]
   OPS["warehouse-ops-agent"]
   CON["warehouse-console<br/>hosting productmaster_mfe"]
 
-  INV -. "legacy ProductClassified<br/>migration only, ADR 0003" .-> PM
   PM -- "warehouse.product-master.events" --> INV
   PM -- "warehouse.product-master.events" --> OM
   PM -- "warehouse.product-master.events" --> WWP
   PM -- "warehouse.product-master.events" --> FE
+  PM -- "warehouse.product-master.events" --> SO
+  PM -- "warehouse.product-master.events" --> IR
   OPS -- "MCP read tools" --> PM
   CON -- "REST via Kong" --> PM
 ```
 
 Source: `docs/adr/0001-product-master-bounded-context.md` (Context map),
-`docs/adr/0003-migration-from-inventory-storage.md`,
-`internal/adapters/inbound/kafka/legacy_importer.go`,
+`docs/adr/0003-migration-from-inventory-storage.md` (stage E),
 `internal/adapters/outbound/kafka/encoder.go`; on the consumer side each
-sibling's `ProductClassified` consumer on `develop`, warehouse-ops-agent ADR
-0020 and warehouse-console #66.
+sibling's consumer of `warehouse.product-master.events` on `develop`,
+warehouse-ops-agent ADR 0020 and warehouse-console #66.
 Omits: the Kafka broker, Kong, operators calling REST directly and the
 patterns on each edge (see the [context map](/docs/ddd/context-map) for
 those).
 
-The four downstream contexts each consume only
-`com.warehouse.wms.product-master.product.ProductClassified` today; see
+inventory-storage, order-management, wes-work-planning and
+fulfillment-execution consume only `ProductClassified`; slotting-optimization
+also consumes `ProductDimensionsDeclared` and `ProductMeasured`;
+inbound-receiving consumes only `ProductRegistered`. Nothing flows in: the
+legacy edge from inventory-storage (ADR 0003) was removed at stage E. See
 [Downstream consumers](/docs/ecosystem/downstream-consumers).
 
 ## No live cross-context lookup, in either direction
@@ -88,18 +93,27 @@ and has no in-memory or log-sink mode ([ADR 0010](/docs/adr/0010-postgres-and-ka
 ### Deployed (kind cluster)
 
 warehouse-infra deploys all of the above in the `warehouse-systems`
-namespace: REST through Kong at `http://localhost:8000/api/product-master`,
-the remote through the web gateway at `http://localhost/mfes/product-master/`,
-the MCP server in-cluster at `product-master-mcp:8090/mcp` (read by
-warehouse-ops-agent), and the projector and reports with the
-`product_master_analytics` database.
+namespace (`terraform/apps.yaml`, `helm-values/product-master.yaml`): REST
+through Kong at `http://localhost:8000/api/product-master`, the remote through
+the web gateway at `http://localhost/mfes/product-master/`, the MCP server
+in-cluster at `product-master-mcp:8090/mcp` (read by warehouse-ops-agent) and
+through Kong at `/api/mcp/product-master`, and the projector and reports with
+the `product_master_analytics` database.
 
-:::caution Known issue: reports through Kong
-warehouse-infra declares a Kong route `/api/product-master/reports/*` for
-`product-reports`, but requests to it are answered by the `/api/product-master`
-route (the OLTP API, which has no `/reports/*` path), so they return `404`.
-The reports service works in-cluster (Service `product-master-reports`, port
-80 to 8092); reach it with
-`kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`
-until the route is fixed in warehouse-infra.
+The reports are routed by this chart's own HTTPRoute
+(`charts/product-master/templates/reports-route.yaml`, rendered when
+`analytics.enabled` and `analytics.reports.route.enabled`, both set in
+warehouse-infra): `/api/product-master/reports` is rewritten to `/reports` on
+Service `product-master-reports`. Its path prefix is longer than the API's
+`/api/product-master`, so Gateway API precedence sends `/reports` requests to
+it.
+
+:::caution Reports through Kong: not re-verified
+On 2026-10-07 warehouse-infra recorded a known issue: requests to
+`/api/product-master/reports/*` were answered by the OLTP API route and
+returned `404`. That was before the route moved into this chart and its
+render condition was fixed (`8c22a05`, 2026-10-13). warehouse-infra's README
+still lists the issue, and it has not been re-tested on a running cluster
+since. If it returns `404`, reach the reports in-cluster with
+`kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`.
 :::

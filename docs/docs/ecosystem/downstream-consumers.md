@@ -6,20 +6,25 @@ sidebar_position: 1
 
 # Downstream consumers
 
-`product-master` is upstream of four contexts through its Published Language,
+`product-master` is upstream of six contexts through its Published Language,
 `warehouse.product-master.events`. None of them calls this service at request
 time: each keeps a **local copy** keyed by SKU, fed by a Kafka consumer and
 guarded by `version` (ADR 0001, ADR 0003 stage D). The table reflects each
-consumer's code on its `develop` branch.
+consumer's code on its `develop` branch and its wiring in warehouse-infra
+`develop` (`terraform/apps.yaml` deploys all six; the values file named in the
+last column sets the switch).
 
-| Consumer | Type consumed | Consumer group env | Mode switch | What the copy is for | Its ADR |
-| --- | --- | --- | --- | --- | --- |
-| `inventory-storage` (Core) | `com.warehouse.wms.product-master.product.ProductClassified` | `PRODUCT_MASTER_CONSUMER_GROUP` (unset = not started; needs `DATABASE_URL` and `KAFKA_BROKERS`) | none | its existing `product_classifications` table, read by `StowStock` for placement (hazmat zone, temperature class) and same-bin DOT segregation | 0034 |
-| `order-management` (Generic/Supporting) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default); `http` is rejected at boot | intake enrichment: derived product attributes for path eligibility routing | 0036 |
-| `wes-work-planning` (Core) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default) | release-time capabilities and the fragile flag | 0035 |
-| `fulfillment-execution` (Core) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default); `http` is rejected at boot | seal-time package segregation | 0039 |
+| Consumer | Types consumed | Consumer group env | Mode switch (binary) | Wired in warehouse-infra | What the copy is for | Its ADR |
+| --- | --- | --- | --- | --- | --- | --- |
+| `inventory-storage` (Core) | `com.warehouse.wms.product-master.product.ProductClassified` | `PRODUCT_MASTER_CONSUMER_GROUP` (unset = not started; needs `DATABASE_URL` and `KAFKA_BROKERS`) | none | yes: `productMasterConsumerGroup: inventory-storage-product-master` (`helm-values/inventory-storage.yaml`) | its existing `product_classifications` table, read by `StowStock` for placement (hazmat zone, temperature class) and same-bin DOT segregation | 0034 |
+| `order-management` (Generic/Supporting) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default); `http` is rejected at boot | yes: `productClassification.mode: kafka` (`helm-values/order-management.yaml`) | intake enrichment: derived product attributes for path eligibility routing | 0036 |
+| `wes-work-planning` (Core) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default) | yes: `PRODUCT_CLASSIFICATION_MODE=kafka` for `cmd/wes` and `cmd/mcp` (`helm-values/wes-work-planning.yaml`) | release-time capabilities and the fragile flag | 0035 |
+| `fulfillment-execution` (Core) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` (required) | `PRODUCT_CLASSIFICATION_MODE`: `kafka` (default) is the only mode; `permissive`, `off` and `http` are boot errors | yes: `PRODUCT_CLASSIFICATION_MODE=kafka` (`helm-values/fulfillment-execution.yaml`) | seal-time package segregation | 0039 |
+| `slotting-optimization` (Supporting) | `...product.ProductClassified`, `...product.ProductDimensionsDeclared`, `...product.ProductMeasured` | `PRODUCT_CONSUMER_GROUP` (required) | `PRODUCT_MODE`: `kafka` (default) is the only mode; `permissive` and `off` are boot errors | yes: `productMode: kafka`, `productConsumerGroup: slotting-optimization-product` (`helm-values/slotting-optimization.yaml`) | handling class and effective unit size (the physical profile) of each SKU for slot plans | 0003 |
+| `inbound-receiving` (Supporting) | `...product.ProductRegistered` | `PRODUCT_CONSUMER_GROUP` (required) | `PRODUCT_MODE`: `kafka` (default) is the only mode; `permissive` and `off` are boot errors | yes: `productMode: kafka`, `productConsumerGroup: inbound-receiving-product` (`helm-values/inbound-receiving.yaml`) | `known_skus`: an ASN line for an unknown SKU is rejected at registration | 0003 |
 
-Classifications of neighbours come from the warehouse-docs contexts table.
+Classifications of neighbours come from the warehouse-docs subdomain
+classification table.
 
 Every message carries the CloudEvents `content-type` header and, when the
 writing request had an active span, the W3C `traceparent` (plus
@@ -36,16 +41,23 @@ and `cmd/order/product_classification.go`;
 `wes-work-planning` `internal/adapters/inbound/kafka/product_classification_consumer.go`
 and `cmd/wes/classification.go`;
 `fulfillment-execution` `internal/adapters/inbound/kafka/product_classified_consumer.go`
-and `cmd/execution/classification.go`.
+and `cmd/execution/classification.go`;
+`slotting-optimization` `internal/adapters/inbound/kafka/product_consumer.go`
+and `cmd/api/main.go` (`consumerSpecs`);
+`inbound-receiving` `internal/adapters/inbound/kafka/product_consumer.go` and
+`cmd/api/main.go`.
 
-## Events with no consumer yet
+## Events with no consumer, and unbuilt uses
 
-`ProductRegistered`, `ProductDescriptionChanged`, `ProductDimensionsDeclared`
-and `ProductMeasured` are published but no sibling consumes them today. ADR
-0002 names the intended later uses of the physical profile:
-`fulfillment-execution` (expected package weight = effective unit weight x
-scanned quantity), `inventory-storage` (unit volume against slot capacity at
-stow) and `warehouse-planning` (cube-based storage capacity). None is built.
+`ProductDescriptionChanged` is published but no sibling consumes it; every
+consumer above ignores it by type.
+
+The physical profile (`ProductDimensionsDeclared`, `ProductMeasured`) has one
+consumer, slotting-optimization. The other uses ADR 0002 names are still not
+built: `fulfillment-execution` (expected package weight = effective unit
+weight x scanned quantity), `inventory-storage` (unit volume against slot
+capacity at stow) and `warehouse-planning` (cube-based storage capacity); none
+of those repositories consumes either type on `develop`.
 
 ## Operators, console and agents
 

@@ -13,7 +13,7 @@ catalogue.
 
 ## Envelope
 
-Every message, published or consumed, is a **CloudEvents 1.0** event in
+Every message this service publishes is a **CloudEvents 1.0** event in
 structured content mode with the Kafka header
 `content-type: application/cloudevents+json; charset=UTF-8`.
 
@@ -38,9 +38,9 @@ payload carries `sku` and the aggregate `version` after the change.
 
 | Type suffix (after `com.warehouse.wms.product-master.product.`) | Raised | Payload (`data`) |
 | --- | --- | --- |
-| `ProductRegistered` | `PUT /products/{sku}` for a new SKU; the legacy importer for an unknown SKU | `sku`, `description`, `version` (always 1) |
+| `ProductRegistered` | `PUT /products/{sku}` for a new SKU | `sku`, `description`, `version` (always 1) |
 | `ProductDescriptionChanged` | `PUT /products/{sku}` with a different description | `sku`, `description`, `version` |
-| `ProductClassified` | `PUT /products/{sku}/classification`; the legacy importer | `sku`, `handling_tags[]`, `temperature_class`?, `dot_hazard_class`?, `classification_source` (`native` or `legacy-import`), `version` |
+| `ProductClassified` | `PUT /products/{sku}/classification` | `sku`, `handling_tags[]`, `temperature_class`?, `dot_hazard_class`?, `classification_source` (`native` for every event raised since stage E; the enum keeps `legacy-import`, the source of rows imported before it), `version` |
 | `ProductDimensionsDeclared` | `PUT /products/{sku}/dimensions/declared` | full profile: `sku`, `declared`?, `measured`?, `effective`?, `effective_source`, `discrepancy`, `version` |
 | `ProductMeasured` | `PUT /products/{sku}/dimensions/measured` | the same full profile |
 
@@ -57,9 +57,11 @@ consumer overwrites, it never merges.
 
 ## Consumed
 
-Nothing. The ADR 0003 migration importer (`LEGACY_IMPORT_CONSUMER_GROUP`,
-inventory-storage's legacy `ProductClassified`) was removed at stage E
-(2026-10-17).
+Nothing from another context. The ADR 0003 migration importer
+(`LEGACY_IMPORT_CONSUMER_GROUP`, inventory-storage's legacy
+`ProductClassified`) was removed at stage E (2026-10-17), and inventory-storage
+no longer publishes that type. The only consumer in this repository reads this
+service's own analytics stream (below).
 
 ## Analytics stream (ADR 0006)
 

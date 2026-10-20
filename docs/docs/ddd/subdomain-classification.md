@@ -19,8 +19,8 @@ sidebar_label: Subdomain classification
 
 The tier and the classification are different axes: `wms` says this context
 answers "what and where" questions in the warehouse-management tier (alongside
-`facility-layout`, `inventory-storage`, `inbound-receiving` and
-`slotting-optimization`); Supporting says how much competitive advantage it
+`facility-layout`, `inventory-storage`, `inbound-receiving`,
+`slotting-optimization` and `pick-face-replenishment`); Supporting says how much competitive advantage it
 gives.
 
 ## Why Supporting
@@ -43,8 +43,8 @@ where the business differentiates."
 - **Small model.** One aggregate (`Product`) with value objects
   `Classification`, `UnitDimensions`, `Measurement` and `PhysicalProfile`; no
   invariant spans two SKUs; the rules are local validations plus
-  latest-measurement-wins and "a legacy import never overwrites a native
-  classification" (`internal/domain/product`).
+  latest-measurement-wins and "no change means no event"
+  (`internal/domain/product`).
 
 Where it could move: ADR 0001's out-of-scope list (pack hierarchy, units of
 measure, lot/serial/expiry policy, lifecycle states, barcodes) is the part a
@@ -59,15 +59,17 @@ restated from memory:
 
 | Context | Classification | Tier | Relationship to product-master |
 | --- | --- | --- | --- |
-| `inventory-storage` | Core | `wms` | Upstream during the migration only (legacy `ProductClassified` on `warehouse.inventory.events`, ADR 0003); downstream consumer of `ProductClassified` for stow placement and DOT segregation |
+| `inventory-storage` | Core | `wms` | Downstream consumer of `ProductClassified` for stow placement and DOT segregation. It was also upstream during the migration (legacy `ProductClassified` on `warehouse.inventory.events`, ADR 0003); that edge was removed at stage E |
 | `order-management` | Generic/Supporting | `wes` | Downstream consumer of `ProductClassified` (intake enrichment) |
 | `wes-work-planning` | Core | `wes` | Downstream consumer of `ProductClassified` (release capabilities, fragile flag) |
 | `fulfillment-execution` | Core | `wes` | Downstream consumer of `ProductClassified` (seal-time segregation) |
+| `slotting-optimization` | Supporting | `wms` | Downstream consumer of `ProductClassified`, `ProductDimensionsDeclared` and `ProductMeasured` (handling class and unit size for slot plans) |
+| `inbound-receiving` | Supporting | `wms` | Downstream consumer of `ProductRegistered` (`known_skus` copy: an ASN line must name a known SKU) |
 | `warehouse-ops-agent` | Supporting | `wes` (publishes no events) | Reads the four MCP tools |
 | `warehouse-planning` | Core | `wes` | Named by ADR 0002 as a future user of the physical profile; no consumer is built |
 
 The pattern is the usual one for a Supporting context: it is upstream of three
-Core contexts, which keep their own copy of the facts from the Published
+Core contexts and three others (six consumers in all), which keep their own copy of the facts from the Published
 Language (`warehouse.product-master.events`) instead of calling it at request
 time. See [Downstream consumers](/docs/ecosystem/downstream-consumers) and the
 [context map](/docs/ddd/context-map).

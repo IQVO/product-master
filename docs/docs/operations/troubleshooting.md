@@ -47,15 +47,14 @@ for the procedures, the [runbook](/docs/operations/runbook).
 | WARN `analytics: skipping message that is not a CloudEvents 1.0 event` | Something wrote a non-CloudEvents message to the analytics topic. | `topic`, `partition`, `offset` fields. | Find the writer; only product-master's relay should write there. |
 | `GET /reports/master-data-quality` returns `400 invalid-report-range` | `from`/`to` not RFC 3339, `from` not before `to`, or the range is longer than 366 days. | The `detail` field names the rule. | Send RFC 3339 timestamps, e.g. `2026-10-01T00:00:00Z`. |
 | Reports return `500 report-store-error` | The analytical query failed (connection, 15s statement timeout). | `report query failed` ERROR log with the real error. | Fix the database; narrow the range if it times out. |
-| `404` for `http://localhost:8000/api/product-master/reports/...` | Known warehouse-infra routing issue: Kong sends the request to the OLTP API, which has no `/reports` route. | Same request through a port-forward works. | `kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`. |
+| `404` for `http://localhost:8000/api/product-master/reports/...` | The reports HTTPRoute (`charts/product-master/templates/reports-route.yaml`, path `/api/product-master/reports`) is missing or not accepted, so Kong matches the OLTP API's `/api/product-master` route, which has no `/reports` path. warehouse-infra recorded this on 2026-10-07, before the route moved into this chart (`8c22a05`); it has not been re-tested since. | `kubectl -n warehouse-systems get httproute` lists `product-master-reports`; the same request through a port-forward works. | Check `analytics.enabled` and `analytics.reports.route.enabled`; meanwhile `kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`. |
 
-## Legacy importer (ADR 0003)
+## Classification source `legacy-import`
 
 | Symptom | Cause | Check | Fix |
 | --- | --- | --- | --- |
-| `legacy classification processed` with `"outcome":"unchanged"` | The product already has a `native` classification (never overwritten) or the same classification. | `GET /products/{sku}/classification` shows `classificationSource`. | Expected behaviour. |
-| `"outcome":"duplicate"` | The CloudEvents `id` was already claimed in `processed_events`. | `SELECT * FROM processed_events WHERE event_id = '...'`. | Expected on redelivery. |
-| WARN `skipping an invalid legacy classification` or `skipping a malformed legacy ProductClassified payload` | Bad SKU, unknown tag or broken invariant in inventory-storage's message. | `error` field. | Fix the source data in inventory-storage; the message is committed past and not retried. |
+| `classificationSource` (REST) or `classification_source` (MCP, events) is `legacy-import` | The classification was imported from inventory-storage by the ADR 0003 importer before stage E (2026-10-17) and nobody has classified the SKU here since. The importer no longer exists, so no new row gets this value. | `GET /products/{sku}/classification`. | Review it and `PUT /products/{sku}/classification`; even the same values make it `native` and raise `ProductClassified`. |
+| `LEGACY_IMPORT_CONSUMER_GROUP` set on a pod has no effect | The variable was removed with the importer at stage E; nothing reads it. | `cmd/api` logs no importer line. | Remove it from the environment. |
 
 ## REST errors
 
@@ -98,5 +97,5 @@ failures are absorbed by the outbox.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| WARN `worker did not stop before the shutdown drain deadline` (`worker` = `legacy-importer` or `outbox-relay`) | The importer or relay was mid-retry when SIGTERM came and did not return within 10s. | Harmless for data: unpublished rows stay in the outbox and uncommitted messages are redelivered. Check what it was retrying. |
+| WARN `worker did not stop before the shutdown drain deadline` (`worker` = `outbox-relay`) | The relay was mid-pass when SIGTERM came and did not return within 10s. | Harmless for data: unpublished rows stay in the outbox and are sent by the next pod. Check the `last_error` of the pending rows. |
 | Requests fail during rollout | The pod was removed before `/readyz` stopped routing to it. | Keep `SHUTDOWN_DRAIN_DELAY` (5s) above the readiness probe period (5s) and `terminationGracePeriodSeconds` (40) above the sum of the drains. |
