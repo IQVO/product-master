@@ -6,41 +6,47 @@ sidebar_position: 2
 
 # Upstream contracts
 
-`product-master` has **one** upstream contract, and it exists only for the
-migration of classification ownership out of `inventory-storage`
-([ADR 0003](/docs/adr/0003-migration-from-inventory-storage)). It disappears
-at stage E. Messages are matched on the **full** CloudEvents `type`; unknown
-types are ignored.
+`product-master` has **no** upstream contract. It reads no other context's
+topic and has no outbound HTTP client (ADR 0001, "No live cross-context
+lookup, in either direction"). The only Kafka consumer in this repository is
+`cmd/product-projector`, which reads this service's own
+`warehouse.product-master.analytics` topic.
 
-## inventory-storage: legacy `ProductClassified` (migration only)
+Until stage E of [ADR 0003](/docs/adr/0003-migration-from-inventory-storage)
+there was one migration-only contract with inventory-storage. It is kept below
+as the migration record; none of it runs today.
 
-| Item | Value |
+## Retired: inventory-storage legacy `ProductClassified` (ADR 0003)
+
+| Item | Value while it existed |
 | --- | --- |
-| Topic | `warehouse.inventory.events` (`LegacyTopic` in `internal/adapters/inbound/kafka/legacy_importer.go`) |
-| Type | `com.warehouse.wms.inventory-storage.product.ProductClassified` (`TypeLegacyProductClassified`), byte-identical to inventory-storage's AsyncAPI |
-| Consumer group | was env `LEGACY_IMPORT_CONSUMER_GROUP` |
-| Fields used | `sku`, `handling_tags`, `temperature_class`, `dot_hazard_class` (`legacyClassifiedData`, restated here, never imported from that service) |
+| Topic | `warehouse.inventory.events` |
+| Type | `com.warehouse.wms.inventory-storage.product.ProductClassified` |
+| Consumer group | env `LEGACY_IMPORT_CONSUMER_GROUP` (unset = importer not started) |
+| Fields used | `sku`, `handling_tags`, `temperature_class`, `dot_hazard_class` (restated here, never imported from that service) |
 | Idempotency | claim of the CloudEvents `id` in `processed_events` under consumer `legacy-classification-importer`, in the same unit of work as the effect |
 | Effect | `ImportLegacyClassification`: register an unknown SKU (empty description) and set its classification with source `legacy-import`; skip when the current classification is `native`; no change when identical |
 | Invalid input | not a CloudEvent, malformed payload, invalid SKU or classification: WARN and commit past |
 | Transient failure | retry the same message, 200 ms doubling to 5 s, until it succeeds; no dead-letter topic |
 
-Every accepted import raises product-master's own `ProductRegistered` and/or
-`ProductClassified` through the outbox, so downstream copies fill from one
-topic only.
+### How it ended
 
-### Where inventory-storage stands
+Stage E was executed on 2026-10-17 after every row of inventory-storage's
+`product_classifications` was verified present here (ADR 0003, stage E).
 
-On `inventory-storage`'s `develop` the hand-over (its ADR 0034) is in place:
-`PUT /products/{sku}/classification` there returns `410 Gone` with problem
-type `classification-moved`, a one-shot backfill command re-emits every row of
-its `product_classifications` table as the legacy event (stage B), and its
-`ProductMasterConsumer` applies this context's `ProductClassified` to that
-table as a local copy (stage C). The legacy type is therefore emitted only by
-that backfill command, and the importer and the legacy type were both removed
-at stage E (2026-10-17). This section is kept as the migration record.
+- product-master (#48): removed `internal/adapters/inbound/kafka/legacy_importer.go`,
+  the `ImportLegacyClassification` use case and aggregate method,
+  `LEGACY_IMPORT_CONSUMER_GROUP` in `cmd/api` and the chart, and the legacy
+  godog features.
+- inventory-storage (commit `002852f`, its ADR 0034): removed the
+  `republish-product-classifications` backfill command, the legacy
+  `ProductClassified` type from its publisher and AsyncAPI, and its retired
+  `PUT` and `GET /products/{sku}/classification` endpoints. Its
+  `ProductMasterConsumer`, which applies this context's `ProductClassified` to
+  `product_classifications` as a local copy, stays.
 
-## Not consumed
-
-Nothing else. `product-master` has no outbound HTTP client and reads no other
-topic (ADR 0001, "No live cross-context lookup, in either direction").
+What remains here: the `legacy-import` value of `classification_source` on
+rows the importer wrote (`SourceLegacyImport`, still accepted by the
+`products` CHECK constraint and the contracts' enums), and the
+`processed_events` table, which keeps the importer's claims and has no writer
+since.
