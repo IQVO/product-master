@@ -1,0 +1,1 @@
+{"title":"Body","body":{"required":false,"content":{"application/json":{"schema":{"type":"object","additionalProperties":false,"properties":{"reason":{"type":"string","minLength":1,"maxLength":200,"description":"Why the level is retired. Omitted means `retired`."}},"title":"RetirePackLevelInput"},"example":{"reason":"discontinued"}}}}}
