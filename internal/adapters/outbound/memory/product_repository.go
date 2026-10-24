@@ -13,6 +13,7 @@ import (
 	"github.com/claudioed/product-master/internal/application/ports"
 	"github.com/claudioed/product-master/internal/application/repository"
 	"github.com/claudioed/product-master/internal/domain/product"
+	"github.com/claudioed/product-master/internal/domain/shared/gs1"
 )
 
 // ProductRepo is an in-memory, mutex-guarded ports.ProductRepository.
@@ -37,7 +38,7 @@ func copyOf(p *product.Product) *product.Product {
 		cc := product.RehydrateClassification(c.Tags(), c.TemperatureClass(), c.DOTHazardClass())
 		classification, source = &cc, s
 	}
-	return product.Rehydrate(p.SKU(), p.Description(), classification, source, p.PhysicalProfile(), p.Version())
+	return product.RehydrateWithPackaging(p.SKU(), p.Description(), classification, source, p.PhysicalProfile(), product.RehydratePackagingHierarchy(p.PackLevels().Levels()), p.Version())
 }
 
 // Get implements ports.ProductRepository.
@@ -51,8 +52,20 @@ func (r *ProductRepo) Get(_ context.Context, sku product.SKU) (*product.Product,
 	return copyOf(p), nil
 }
 
-// Save implements ports.ProductRepository with the same version guard as the
-// Postgres adapter.
+// GetByGTIN implements ports.ProductRepository.
+func (r *ProductRepo) GetByGTIN(_ context.Context, gtin gs1.GTIN) (*product.Product, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, p := range r.products {
+		if _, ok := p.PackLevels().ByGTIN(gtin); ok {
+			return copyOf(p), nil
+		}
+	}
+	return nil, repository.ErrGtinNotFound
+}
+
+// Save implements ports.ProductRepository with the same version guard and
+// the same fleet-wide GTIN uniqueness as the Postgres adapter.
 func (r *ProductRepo) Save(_ context.Context, p *product.Product, loadedVersion int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -62,6 +75,13 @@ func (r *ProductRepo) Save(_ context.Context, p *product.Product, loadedVersion 
 	}
 	if loadedVersion != 0 && (!exists || current.Version() != loadedVersion) {
 		return repository.ErrConcurrentModification
+	}
+	for _, def := range p.PackLevels().Levels() {
+		for sku, other := range r.products {
+			if _, taken := other.PackLevels().ByGTIN(def.GTIN()); taken && sku != p.SKU() {
+				return product.ErrGtinAlreadyAssigned
+			}
+		}
 	}
 	r.products[p.SKU()] = copyOf(p)
 	return nil

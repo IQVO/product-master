@@ -10,6 +10,7 @@ import (
 
 	"github.com/claudioed/product-master/internal/application/repository"
 	"github.com/claudioed/product-master/internal/domain/product"
+	"github.com/claudioed/product-master/internal/domain/shared/gs1"
 )
 
 func TestGetProduct_ClassifiedWithProfile(t *testing.T) {
@@ -172,7 +173,8 @@ func TestListProducts_MalformedQueries(t *testing.T) {
 }
 
 // Reading never writes: no outbox row is added and no version moves, so the
-// MCP surface can never publish an event (docs/adr/0005).
+// MCP read tools can never publish an event (docs/adr/0005); the two write
+// tools do, and have their own tests (pack_level_tools_test.go).
 func TestToolsNeverWrite(t *testing.T) {
 	h := newHarness(t)
 	h.seed(t, "SKU-1", "Box", []string{"Hazmat"}, "", 0)
@@ -187,6 +189,8 @@ func TestToolsNeverWrite(t *testing.T) {
 		{"list_products", map[string]any{}},
 		{"get_product_classification", map[string]any{"sku": "SKU-1"}},
 		{"get_physical_profile", map[string]any{"sku": "SKU-1"}},
+		{"get_pack_levels", map[string]any{"sku": "SKU-1"}},
+		{"resolve_gtin", map[string]any{"gtin": "4006381333931"}},
 		{"get_product", map[string]any{"sku": "SKU-404"}},
 	} {
 		call(t, h.session, c.name, c.args)
@@ -207,6 +211,10 @@ func (failingProducts) Get(context.Context, product.SKU) (*product.Product, erro
 	return nil, errors.New("postgres dsn secret unreachable")
 }
 
+func (failingProducts) GetByGTIN(context.Context, gs1.GTIN) (*product.Product, error) {
+	return nil, errors.New("postgres dsn secret unreachable")
+}
+
 func (failingProducts) Save(context.Context, *product.Product, int64) error {
 	return errors.New("boom")
 }
@@ -217,7 +225,7 @@ func (failingProducts) List(context.Context, repository.ListFilter, product.SKU,
 
 func TestUnexpectedErrorsAreGenericAndLeakNothing(t *testing.T) {
 	session := connectSession(t, depsFor(failingProducts{}))
-	for _, name := range []string{"get_product", "get_product_classification", "get_physical_profile"} {
+	for _, name := range []string{"get_product", "get_product_classification", "get_physical_profile", "get_pack_levels"} {
 		res := call(t, session, name, map[string]any{"sku": "SKU-1"})
 		if !res.IsError || strings.Contains(text(res), "secret") || !strings.HasPrefix(text(res), "internal-error: ") {
 			t.Fatalf("%s: %q, want a generic internal-error", name, text(res))
@@ -226,5 +234,9 @@ func TestUnexpectedErrorsAreGenericAndLeakNothing(t *testing.T) {
 	res := call(t, session, "list_products", map[string]any{})
 	if !res.IsError || strings.Contains(text(res), "secret") {
 		t.Fatalf("list_products: %q", text(res))
+	}
+	res = call(t, session, "resolve_gtin", map[string]any{"gtin": "4006381333931"})
+	if !res.IsError || strings.Contains(text(res), "secret") || !strings.HasPrefix(text(res), "internal-error: ") {
+		t.Fatalf("resolve_gtin: %q", text(res))
 	}
 }

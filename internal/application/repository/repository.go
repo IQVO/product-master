@@ -13,6 +13,8 @@ import (
 var (
 	// ErrProductNotFound is returned by Get when the SKU is not registered.
 	ErrProductNotFound = errors.New("product not found")
+	// ErrGtinNotFound is returned by GetByGTIN when no pack level holds the GTIN.
+	ErrGtinNotFound = errors.New("GTIN not found")
 	// ErrConcurrentModification is returned by Save when the stored version
 	// is not the version the caller loaded (or, for an insert, when the SKU
 	// already exists): another writer won the race.

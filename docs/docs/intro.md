@@ -26,7 +26,7 @@ question: stock lives in `inventory-storage`.
 | Subdomain classification | Supporting ([ADR 0001](/docs/adr/0001-product-master-bounded-context)) |
 | Tier | `wms` (CloudEvents type prefix `com.warehouse.wms.product-master.*`; with `facility-layout`, `inventory-storage`, `inbound-receiving`, `slotting-optimization` and `pick-face-replenishment`) |
 | Language / style | Go backend, hexagonal architecture (ports and adapters) |
-| Inbound adapters | REST (`cmd/api`, `:8080`) and a read-only MCP server (`cmd/mcp`, `:8090`, [ADR 0005](/docs/adr/0005-mcp-server-adoption)); no Kafka consumer of another context (the ADR 0003 legacy importer was removed at stage E, 2026-10-17) |
+| Inbound adapters | REST (`cmd/api`, `:8080`) and an MCP server (`cmd/mcp`, `:8090`, read-only but for two pack level tools, [ADR 0005](/docs/adr/0005-mcp-server-adoption) as amended by [ADR 0011](/docs/adr/0011-packaging-hierarchy-with-gs1-gtin)); no Kafka consumer of another context (the ADR 0003 legacy importer was removed at stage E, 2026-10-17) |
 | Read side | Analytics stream, `cmd/product-projector` and `cmd/product-reports` (master data quality report, [ADR 0006](/docs/adr/0006-analytics-read-side)) |
 | UI | `productmaster_mfe` Module Federation remote (`web/`), hosted by the warehouse-console shell |
 | Deployed | kind cluster via warehouse-infra: Kong `/api/product-master`, `/api/product-master/reports` and `/api/mcp/product-master`, web gateway `/mfes/product-master/` (see [Runtime surface](/docs/overview/context#runtime-surface)) |
@@ -78,7 +78,7 @@ Getting started and operating it:
 - [Observability](/docs/operations/observability): metrics, traces, logs and suggested alerts.
 - [Troubleshooting](/docs/operations/troubleshooting): symptom, cause, check, fix.
 - [Testing](/docs/development/testing): the test pyramid, `make` targets and CI jobs.
-- [MCP tools](/docs/mcp/tools): the four read-only tools of `cmd/mcp`.
+- [MCP tools](/docs/mcp/tools): the six read-only tools and the two pack level write tools of `cmd/mcp`.
 
 The domain:
 

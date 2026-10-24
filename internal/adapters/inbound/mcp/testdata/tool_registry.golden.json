@@ -1,6 +1,381 @@
 [
   {
     "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "WRITE. Declare one packaging level of a registered SKU with its GTIN (ADR 0011): level EACH, INNER, CASE or PALLET; every level but EACH names its child_gtin (an active lower level of this SKU) and qty_of_child (at least 2). A GTIN identifies exactly one (sku, level), fleet-wide. The content quantity of an ACTIVE level never changes: declaring the same gtin with another quantity fails with pack-quantity-immutable; a new quantity needs a NEW gtin at that level, which end-dates the old level (kept, reason superseded). Repeating an identical declaration changes nothing. Raises ProductPackLevelDeclared (and ProductPackLevelRetired when it supersedes). Fails with invalid-gtin, variable-measure-unsupported, invalid-pack-level, invalid-pack-quantity, pack-level-order, pack-dimensions-below-contents, gtin-already-assigned or product-not-found.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "child_gtin": {
+          "description": "the GTIN of the next lower level this one is made of; required for every level but EACH, omitted for EACH",
+          "type": "string"
+        },
+        "dims": {
+          "additionalProperties": false,
+          "description": "optional declared dimensions and weight of one pack; omitted means none declared",
+          "properties": {
+            "height_mm": {
+              "description": "height of one pack in millimetres, 1..20000",
+              "type": "integer"
+            },
+            "length_mm": {
+              "description": "length of one pack in millimetres, 1..20000",
+              "type": "integer"
+            },
+            "weight_g": {
+              "description": "weight of one pack in grams, 1..2000000",
+              "type": "integer"
+            },
+            "width_mm": {
+              "description": "width of one pack in millimetres, 1..20000",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "length_mm",
+            "width_mm",
+            "height_mm",
+            "weight_g"
+          ],
+          "type": [
+            "null",
+            "object"
+          ]
+        },
+        "gtin": {
+          "description": "the GTIN of this level (8, 12, 13 or 14 digits, valid mod-10 check digit; indicator digit 9 is rejected)",
+          "type": "string"
+        },
+        "is_despatch_unit": {
+          "description": "optional; true when this level ships as a unit; omitted means false",
+          "type": "boolean"
+        },
+        "is_orderable": {
+          "description": "optional; true when this level can be ordered from the supplier; omitted means false",
+          "type": "boolean"
+        },
+        "level": {
+          "description": "the packaging level: EACH, INNER, CASE or PALLET",
+          "type": "string"
+        },
+        "qty_of_child": {
+          "description": "how many child packs make one of this level, at least 2; required for every level but EACH, omitted for EACH",
+          "type": "integer"
+        },
+        "sku": {
+          "description": "the product's SKU (1..64 characters, no whitespace, control characters or '/'), e.g. SKU-1",
+          "type": "string"
+        },
+        "units_per_pack": {
+          "description": "optional direct factor to eaches; omitted means qty_of_child times the child's factor, a given value must equal that",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "level",
+        "gtin"
+      ],
+      "type": "object"
+    },
+    "name": "declare_pack_level",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "pack_level": {
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "child_gtin": {
+              "type": "string"
+            },
+            "dims": {
+              "additionalProperties": false,
+              "properties": {
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "effective_from": {
+              "type": "string"
+            },
+            "effective_to": {
+              "type": "string"
+            },
+            "gtin": {
+              "type": "string"
+            },
+            "is_despatch_unit": {
+              "type": "boolean"
+            },
+            "is_orderable": {
+              "type": "boolean"
+            },
+            "level": {
+              "type": "string"
+            },
+            "measured": {
+              "additionalProperties": false,
+              "properties": {
+                "device_id": {
+                  "type": "string"
+                },
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "measured_at": {
+                  "type": "string"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3",
+                "measured_at"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "qty_of_child": {
+              "type": "integer"
+            },
+            "units_per_pack": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "level",
+            "gtin",
+            "units_per_pack",
+            "is_orderable",
+            "is_despatch_unit",
+            "active",
+            "effective_from"
+          ],
+          "type": "object"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "version",
+        "pack_level"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Read the packaging hierarchy of one SKU: every pack level it ever declared, retired ones included, lowest level first. Each item has level, gtin, child_gtin and qty_of_child (absent for EACH), units_per_pack (direct factor to eaches), declared dims, the latest measured dimensions, is_orderable, is_despatch_unit, active and the effective dates. Read-only; fails with product-not-found for an unknown SKU.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "sku": {
+          "description": "the product's SKU (1..64 characters, no whitespace, control characters or '/'), e.g. SKU-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sku"
+      ],
+      "type": "object"
+    },
+    "name": "get_pack_levels",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "child_gtin": {
+                "type": "string"
+              },
+              "dims": {
+                "additionalProperties": false,
+                "properties": {
+                  "height_mm": {
+                    "type": "integer"
+                  },
+                  "length_mm": {
+                    "type": "integer"
+                  },
+                  "volume_mm3": {
+                    "type": "integer"
+                  },
+                  "weight_g": {
+                    "type": "integer"
+                  },
+                  "width_mm": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length_mm",
+                  "width_mm",
+                  "height_mm",
+                  "weight_g",
+                  "volume_mm3"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "effective_from": {
+                "type": "string"
+              },
+              "effective_to": {
+                "type": "string"
+              },
+              "gtin": {
+                "type": "string"
+              },
+              "is_despatch_unit": {
+                "type": "boolean"
+              },
+              "is_orderable": {
+                "type": "boolean"
+              },
+              "level": {
+                "type": "string"
+              },
+              "measured": {
+                "additionalProperties": false,
+                "properties": {
+                  "device_id": {
+                    "type": "string"
+                  },
+                  "height_mm": {
+                    "type": "integer"
+                  },
+                  "length_mm": {
+                    "type": "integer"
+                  },
+                  "measured_at": {
+                    "type": "string"
+                  },
+                  "volume_mm3": {
+                    "type": "integer"
+                  },
+                  "weight_g": {
+                    "type": "integer"
+                  },
+                  "width_mm": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "length_mm",
+                  "width_mm",
+                  "height_mm",
+                  "weight_g",
+                  "volume_mm3",
+                  "measured_at"
+                ],
+                "type": [
+                  "null",
+                  "object"
+                ]
+              },
+              "qty_of_child": {
+                "type": "integer"
+              },
+              "units_per_pack": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "level",
+              "gtin",
+              "units_per_pack",
+              "is_orderable",
+              "is_despatch_unit",
+              "active",
+              "effective_from"
+            ],
+            "type": "object"
+          },
+          "type": [
+            "null",
+            "array"
+          ]
+        },
+        "sku": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "version",
+        "items"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
@@ -618,6 +993,229 @@
       },
       "required": [
         "items"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": true
+    },
+    "description": "Resolve a GTIN (EAN/UPC/GTIN-14 as printed on a barcode; 8, 12, 13 or 14 digits, normalised to 14) to the SKU and packaging level it identifies: sku, level (EACH, INNER, CASE, PALLET), units_per_pack (eaches in one pack), child_gtin, active and the effective_from / effective_to dates. A retired GTIN still resolves, with active false. Read-only; fails with gtin-not-found for a GTIN no pack level holds, invalid-gtin for a bad length or check digit and variable-measure-unsupported for indicator digit 9.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "gtin": {
+          "description": "a GTIN of 8, 12, 13 or 14 digits with a valid mod-10 check digit, as printed on the barcode, e.g. 4006381333931; it is normalised to 14 digits",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gtin"
+      ],
+      "type": "object"
+    },
+    "name": "resolve_gtin",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "child_gtin": {
+          "type": "string"
+        },
+        "effective_from": {
+          "type": "string"
+        },
+        "effective_to": {
+          "type": "string"
+        },
+        "gtin": {
+          "type": "string"
+        },
+        "level": {
+          "type": "string"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "units_per_pack": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "gtin",
+        "sku",
+        "level",
+        "units_per_pack",
+        "active",
+        "effective_from"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "description": "WRITE. End-date the active definition of one packaging level of a SKU (effective_to = now). The definition and its GTIN are kept: the GTIN still resolves, with active false, and is never reassigned. Retiring a level that is already retired changes nothing. Levels above it are not retired: re-declare them. Raises ProductPackLevelRetired. Fails with pack-level-not-found when the SKU never had that level, invalid-pack-level, invalid-reason or product-not-found.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "description": "the packaging level to end-date: EACH, INNER, CASE or PALLET",
+          "type": "string"
+        },
+        "reason": {
+          "description": "optional reason, 1..200 characters without control characters; omitted means retired",
+          "type": "string"
+        },
+        "sku": {
+          "description": "the product's SKU (1..64 characters, no whitespace, control characters or '/'), e.g. SKU-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sku",
+        "level"
+      ],
+      "type": "object"
+    },
+    "name": "retire_pack_level",
+    "outputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "pack_level": {
+          "additionalProperties": false,
+          "properties": {
+            "active": {
+              "type": "boolean"
+            },
+            "child_gtin": {
+              "type": "string"
+            },
+            "dims": {
+              "additionalProperties": false,
+              "properties": {
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "effective_from": {
+              "type": "string"
+            },
+            "effective_to": {
+              "type": "string"
+            },
+            "gtin": {
+              "type": "string"
+            },
+            "is_despatch_unit": {
+              "type": "boolean"
+            },
+            "is_orderable": {
+              "type": "boolean"
+            },
+            "level": {
+              "type": "string"
+            },
+            "measured": {
+              "additionalProperties": false,
+              "properties": {
+                "device_id": {
+                  "type": "string"
+                },
+                "height_mm": {
+                  "type": "integer"
+                },
+                "length_mm": {
+                  "type": "integer"
+                },
+                "measured_at": {
+                  "type": "string"
+                },
+                "volume_mm3": {
+                  "type": "integer"
+                },
+                "weight_g": {
+                  "type": "integer"
+                },
+                "width_mm": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length_mm",
+                "width_mm",
+                "height_mm",
+                "weight_g",
+                "volume_mm3",
+                "measured_at"
+              ],
+              "type": [
+                "null",
+                "object"
+              ]
+            },
+            "qty_of_child": {
+              "type": "integer"
+            },
+            "units_per_pack": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "level",
+            "gtin",
+            "units_per_pack",
+            "is_orderable",
+            "is_despatch_unit",
+            "active",
+            "effective_from"
+          ],
+          "type": "object"
+        },
+        "sku": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sku",
+        "version",
+        "pack_level"
       ],
       "type": "object"
     }

@@ -80,7 +80,7 @@ in its own image (`web/Dockerfile`).
 | Process | Role | Port |
 | --- | --- | --- |
 | `cmd/api` | REST API and the outbox relay | `:8080` (`HTTP_ADDR`) |
-| `cmd/mcp` | Read-only MCP server, Streamable HTTP at `/` and `/mcp`, four tools over the same database; no writes, no relay, no Kafka ([ADR 0005](/docs/adr/0005-mcp-server-adoption)) | `:8090` (`MCP_ADDR`) |
+| `cmd/mcp` | MCP server, Streamable HTTP at `/` and `/mcp`, eight tools over the same database: six read-only and, since [ADR 0011](/docs/adr/0011-packaging-hierarchy-with-gs1-gtin), `declare_pack_level` and `retire_pack_level`, which enqueue their events in the outbox; no relay, no Kafka ([ADR 0005](/docs/adr/0005-mcp-server-adoption)) | `:8090` (`MCP_ADDR`) |
 | `cmd/product-projector` | Consumes `warehouse.product-master.analytics` into the separate analytical database ([ADR 0006](/docs/adr/0006-analytics-read-side)) | admin `:8091` |
 | `cmd/product-reports` | Read-only `GET /reports/master-data-quality` and `GET /reports/freshness` over the analytical database | `:8092` |
 | `web/` (`productmaster_mfe`) | Module Federation remote mounted by the warehouse-console shell; calls the REST API | nginx; dev `:5191` |

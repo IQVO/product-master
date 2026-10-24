@@ -162,3 +162,73 @@ func assertSeededReads(t *testing.T, session *sdk.ClientSession) {
 		t.Fatalf("list_products handling_tag=Hazmat = %v", hazmat)
 	}
 }
+
+// The write tools of ADR 0011 over real Postgres through the binary's own
+// wiring: the product row, the pack level rows and the outbox rows (the FULL
+// CloudEvents type, integration topic only) commit together, and a second SKU
+// cannot take the GTIN.
+func TestMCPWriteToolsAgainstPostgres(t *testing.T) {
+	url := startPostgres(t)
+	ctx := context.Background()
+	deps, closeFn, err := buildDeps(ctx, quietLogger(), url, url)
+	if err != nil {
+		t.Fatalf("buildDeps: %v", err)
+	}
+	t.Cleanup(closeFn)
+	seedThroughWriteUseCases(t, url)
+	before := countOutbox(t, url)
+
+	ct, st := sdk.NewInMemoryTransports()
+	ss, err := inboundmcp.NewServer(deps).Connect(ctx, st, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	session, err := sdk.NewClient(&sdk.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	call := func(name string, args map[string]any, wantErr bool) map[string]any {
+		t.Helper()
+		res, err := session.CallTool(ctx, &sdk.CallToolParams{Name: name, Arguments: args})
+		if err != nil || res.IsError != wantErr {
+			t.Fatalf("%s: err=%v res=%+v", name, err, res)
+		}
+		sc, _ := res.StructuredContent.(map[string]any)
+		return sc
+	}
+
+	call("declare_pack_level", map[string]any{"sku": "SKU-1", "level": "EACH", "gtin": "4006381333931"}, false)
+	call("declare_pack_level", map[string]any{"sku": "SKU-1", "level": "CASE", "gtin": "24006381333935", "child_gtin": "4006381333931", "qty_of_child": 12}, false)
+	call("declare_pack_level", map[string]any{"sku": "SKU-2", "level": "EACH", "gtin": "4006381333931"}, true) // duplicate GTIN, fleet-wide
+	if got := call("resolve_gtin", map[string]any{"gtin": "24006381333935"}, false); got["sku"] != "SKU-1" || got["units_per_pack"] != 12.0 {
+		t.Fatalf("resolve_gtin = %v", got)
+	}
+	call("retire_pack_level", map[string]any{"sku": "SKU-1", "level": "CASE", "reason": "discontinued"}, false)
+
+	// three events, ONE integration row each (no analytics row), none for the refused declaration
+	if after := countOutbox(t, url); after != before+3 {
+		t.Fatalf("outbox rows %d -> %d, want +3", before, after)
+	}
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(ctx)
+	rows, err := conn.Query(ctx, `SELECT event_type, topic FROM outbox_events ORDER BY id DESC LIMIT 3`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	want := []string{"ProductPackLevelRetired", "ProductPackLevelDeclared", "ProductPackLevelDeclared"}
+	for i := 0; rows.Next(); i++ {
+		var typ, topic string
+		if err := rows.Scan(&typ, &topic); err != nil {
+			t.Fatal(err)
+		}
+		if typ != "com.warehouse.wms.product-master.product."+want[i] || topic != outboundkafka.Topic {
+			t.Fatalf("row %d = %s on %s", i, typ, topic)
+		}
+	}
+}

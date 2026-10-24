@@ -110,6 +110,9 @@ are no change in every state (no event, no version bump).
 | `ClassifyProductCommand` | `ClassifyProduct.Handle` (`Classify`) | `PUT /products/{sku}/classification` |
 | `DeclareDimensionsCommand` | `DeclareDimensions.Handle` (`DeclareDimensions`) | `PUT /products/{sku}/dimensions/declared` |
 | `RecordMeasurementCommand` | `RecordMeasurement.Handle` (`RecordMeasurement`) | `PUT /products/{sku}/dimensions/measured` |
+| `DeclarePackLevelCommand` | `DeclarePackLevel.Handle` (`DeclarePackLevel`) | `PUT /products/{sku}/pack-levels/{level}`, MCP `declare_pack_level` |
+| `RetirePackLevelCommand` | `RetirePackLevel.Handle` (`RetirePackLevel`) | `POST /products/{sku}/pack-levels/{level}:retire`, MCP `retire_pack_level` |
+| `RecordPackLevelMeasurementCommand` | `RecordPackLevelMeasurement.Handle` (`RecordPackLevelMeasurement`) | `PUT /products/{sku}/pack-levels/{level}/measured` |
 
 ### 7. Created Events
 
@@ -120,9 +123,14 @@ are no change in every state (no event, no version bump).
 | `ProductClassified` | `Classify` that changes the classification or its source (confirming a `legacy-import` row makes it `native`) | `com.warehouse.wms.product-master.product.ProductClassified` |
 | `ProductDimensionsDeclared` | `DeclareDimensions` with different values | `com.warehouse.wms.product-master.product.ProductDimensionsDeclared` |
 | `ProductMeasured` | `RecordMeasurement` with a new reading | `com.warehouse.wms.product-master.product.ProductMeasured` |
+| `ProductPackLevelDeclared` | `DeclarePackLevel` that declares a level or changes its flags or declared dimensions | `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` |
+| `ProductPackLevelRetired` | `RetirePackLevel`, or `DeclarePackLevel` with a new GTIN at an active level (reason `superseded`) | `com.warehouse.wms.product-master.product.ProductPackLevelRetired` |
+| `ProductPackLevelMeasured` | `RecordPackLevelMeasurement` with a new reading | `com.warehouse.wms.product-master.product.ProductPackLevelMeasured` |
 
-Each command raises at most one event. The `FanoutEncoder` writes each event
-as two outbox rows in the same unit of work (one on
+The `Product` aggregate also holds its `PackagingHierarchy` (ADR 0011): every pack level the SKU ever declared, retired ones kept. Its invariants: a GTIN is valid and identifies one (sku, level); an ACTIVE level's content quantity never changes; every level above EACH has an active lower child level and `qtyOfChild` of at least 2; a pack weighs at least its contents when both weights are known; at most one active level per `PackLevel`.
+
+Each command raises at most one event, except `DeclarePackLevel` with a new GTIN at an active level, which raises two (Retired, then Declared, one `version` apart). The `FanoutEncoder` writes each unit event
+as two outbox rows (and each pack level event as one, on the integration topic only) in the same unit of work (one on
 `warehouse.product-master.events`, one on `warehouse.product-master.analytics`,
 same CloudEvents id; ADR 0006).
 

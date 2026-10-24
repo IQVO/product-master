@@ -33,6 +33,12 @@ type Server struct {
 	GetProduct        *usecases.GetProduct
 	ListProducts      *usecases.ListProducts
 
+	// The packaging hierarchy (ADR 0011).
+	DeclarePackLevel           *usecases.DeclarePackLevel
+	RetirePackLevel            *usecases.RetirePackLevel
+	RecordPackLevelMeasurement *usecases.RecordPackLevelMeasurement
+	ResolveGTIN                *usecases.ResolveGTIN
+
 	// Readiness backs GET /readyz; nil means always ready.
 	Readiness *Readiness
 	// Metrics backs GET /metrics (a Prometheus handler built by cmd/);
@@ -49,7 +55,7 @@ func NewRouter(s *Server) http.Handler {
 	r.Use(otelchimetric.NewServerRequestDuration(otelchimetric.NewBaseConfig(DefaultServiceName)))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsAllowedOrigins(),
-		AllowedMethods:   []string{http.MethodGet, http.MethodPut},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPut, http.MethodPost},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: false,
 	}))
@@ -68,6 +74,12 @@ func NewRouter(s *Server) http.Handler {
 	r.Put("/products/{sku}/dimensions/declared", s.handleDeclareDimensions)
 	r.Put("/products/{sku}/dimensions/measured", s.handleRecordMeasurement)
 	r.Get("/products/{sku}/physical-profile", s.handleGetPhysicalProfile)
+
+	r.Get("/gtins/{gtin}", s.handleResolveGTIN)
+	r.Get("/products/{sku}/pack-levels", s.handleListPackLevels)
+	r.Put("/products/{sku}/pack-levels/{level}", s.handleDeclarePackLevel)
+	r.Post("/products/{sku}/pack-levels/{level}:retire", s.handleRetirePackLevel)
+	r.Put("/products/{sku}/pack-levels/{level}/measured", s.handleRecordPackLevelMeasurement)
 	return r
 }
 

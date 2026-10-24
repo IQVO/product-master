@@ -168,7 +168,7 @@ curl -s -X POST localhost:8090/mcp \
   -H 'Mcp-Session-Id: <id>' -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 ```
 
-The four tools are listed on [MCP tools](/docs/mcp/tools).
+The eight tools (six read-only, two pack level writes) are listed on [MCP tools](/docs/mcp/tools).
 
 ## Run the analytics read side
 

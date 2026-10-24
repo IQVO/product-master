@@ -27,13 +27,19 @@ classDiagram
     -classification Classification
     -source ClassificationSource
     -profile PhysicalProfile
+    -packaging PackagingHierarchy
     -version int64
     +Register(sku, description, now)$ Product, Event[], error
     +Rehydrate(sku, description, classification, source, profile, version)$ Product
+    +RehydrateWithPackaging(sku, description, classification, source, profile, packaging, version)$ Product
     +ChangeDescription(description, now) Event[], error
     +Classify(c, now) Event[], error
     +DeclareDimensions(d, now) Event[]
     +RecordMeasurement(m, now) Event[], error
+    +DeclarePackLevel(spec, now) Event[], error
+    +RetirePackLevel(level, reason, now) Event[], error
+    +RecordPackLevelMeasurement(level, m, now) Event[], error
+    +PackLevels() PackagingHierarchy
     +Classification() Classification, ClassificationSource, error
     +IsClassified() bool
     +Version() int64
@@ -108,11 +114,48 @@ classDiagram
     string 1..64, no whitespace or slash
     +NewSKU(value)$ SKU, error
   }
+  class PackagingHierarchy {
+    <<ValueObject>>
+    every pack level ever declared, retired ones kept
+    +Levels() PackLevelDef[]
+    +Active(level) PackLevelDef, bool
+    +ByGTIN(gtin) PackLevelDef, bool
+  }
+  class PackLevelDef {
+    <<ValueObject>>
+    -level PackLevel
+    -gtin GTIN
+    -childGTIN GTIN
+    -qtyOfChild int
+    -unitsPerPack int
+    -isOrderable bool
+    -isDespatchUnit bool
+    -effectiveFrom Time
+    -effectiveTo Time
+    +Active() bool
+    +EffectiveDimensions() UnitDimensions, bool
+  }
+  class PackLevel {
+    <<ValueObject>>
+    EACH, INNER, CASE, PALLET
+    +ParsePackLevel(s)$ PackLevel, error
+  }
+  class GTIN {
+    <<ValueObject, shared/gs1>>
+    14-digit, mod-10 checked
+    +ParseGTIN(s)$ GTIN, error
+  }
 
   Product *-- SKU
   Product *-- "0..1" Classification
   Product --> ClassificationSource
   Product *-- PhysicalProfile
+  Product *-- PackagingHierarchy
+  PackagingHierarchy *-- "0..*" PackLevelDef
+  PackLevelDef --> PackLevel
+  PackLevelDef --> GTIN
+  PackLevelDef *-- "0..1" UnitDimensions : declared
+  PackLevelDef *-- "0..1" Measurement : latest
   Classification --> "1..5" HandlingTag
   Classification --> TemperatureClass
   Classification --> DOTHazardClass
@@ -123,7 +166,7 @@ classDiagram
 ```
 
 Source: `internal/domain/product/product.go`, `classification.go`,
-`physical.go`, `sku.go`. `legacy-import` is still a valid
+`physical.go`, `packaging.go` (ADR 0011), `sku.go`, and `internal/domain/shared/gs1` (the shared GS1 package installed from the harness template). `legacy-import` is still a valid
 `ClassificationSource` (`SourceLegacyImport`) because rows written by the
 ADR 0003 importer keep it, but no method sets it since the importer was removed
 at stage E: `Classify` always sets `native`.
@@ -172,16 +215,39 @@ classDiagram
     <<DomainEvent>>
     +Profile PhysicalProfile
   }
+  class ProductPackLevelDeclared {
+    <<DomainEvent>>
+    +Def PackLevelDef
+  }
+  class ProductPackLevelRetired {
+    <<DomainEvent>>
+    +Level PackLevel
+    +GTIN GTIN
+    +EffectiveTo Time
+    +Reason string
+  }
+  class ProductPackLevelMeasured {
+    <<DomainEvent>>
+    +Level PackLevel
+    +GTIN GTIN
+    +Measurement Measurement
+  }
   Event <|.. ProductRegistered
   Event <|.. ProductDescriptionChanged
   Event <|.. ProductClassified
   Event <|.. ProductDimensionsDeclared
   Event <|.. ProductMeasured
+  Event <|.. ProductPackLevelDeclared
+  Event <|.. ProductPackLevelRetired
+  Event <|.. ProductPackLevelMeasured
   ProductRegistered *-- Header
   ProductDescriptionChanged *-- Header
   ProductClassified *-- Header
   ProductDimensionsDeclared *-- Header
   ProductMeasured *-- Header
+  ProductPackLevelDeclared *-- Header
+  ProductPackLevelRetired *-- Header
+  ProductPackLevelMeasured *-- Header
 ```
 
 Source: `internal/domain/product/events.go`.

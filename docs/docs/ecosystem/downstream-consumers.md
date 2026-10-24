@@ -50,7 +50,11 @@ and `cmd/api/main.go` (`consumerSpecs`);
 ## Events with no consumer, and unbuilt uses
 
 `ProductDescriptionChanged` is published but no sibling consumes it; every
-consumer above ignores it by type.
+consumer above ignores it by type. The same holds for the three pack level
+types of ADR 0011 (`ProductPackLevelDeclared`, `ProductPackLevelRetired`,
+`ProductPackLevelMeasured`): published on the integration topic, no consumer yet.
+ADR 0011 names the ones that will build a projection; each must ignore them by
+type until then.
 
 The physical profile (`ProductDimensionsDeclared`, `ProductMeasured`) has one
 consumer, slotting-optimization. The other uses ADR 0002 names are still not
@@ -66,7 +70,7 @@ Service customers. Both are built and deployed in the kind cluster:
 
 | Customer | Surface it uses | Evidence |
 | --- | --- | --- |
-| `warehouse-ops-agent` | The read-only MCP server (`cmd/mcp`, ADR 0005) at `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, configured as `PRODUCT_MASTER_MCP_ENDPOINT`. Its client pins the four tools' schemas; its `find_master_data_gaps` MCP tool and `GET /master-data-gaps` page through `list_products` to report unclassified products and dimension discrepancies. | warehouse-ops-agent ADR 0020, `internal/adapters/outbound/mcpclient/product_master.go` |
+| `warehouse-ops-agent` | The MCP server (`cmd/mcp`, ADR 0005; read-only but for two pack level tools, ADR 0011) at `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, configured as `PRODUCT_MASTER_MCP_ENDPOINT`. Its client pins the four tools' schemas; its `find_master_data_gaps` MCP tool and `GET /master-data-gaps` page through `list_products` to report unclassified products and dimension discrepancies. | warehouse-ops-agent ADR 0020, `internal/adapters/outbound/mcpclient/product_master.go` |
 | `warehouse-console` | Hosts this context's own remote, `productmaster_mfe` (`web/`), served at `/mfes/product-master/` and mounted on `/product-master/*` behind the Product Master tile. The remote calls the REST API through Kong at `/api/product-master`. | warehouse-console #66 (`src/App.tsx`, `vite.config.ts`), `web/src/config.ts` |
 
 Neither is a domain context and neither keeps a copy: both read at request

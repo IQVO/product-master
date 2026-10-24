@@ -4,9 +4,14 @@
 // the official MCP Go SDK and served over Streamable HTTP only.
 //
 // Per docs/adr/0005-mcp-server-adoption.md the surface is READ-ONLY: every
-// tool reads product master data (get_product, list_products,
-// get_product_classification, get_physical_profile); writes stay on REST,
-// and governance_test.go fails the build on a write-verb tool name. This
+// tool but two reads product master data (get_product, list_products,
+// get_product_classification, get_physical_profile, resolve_gtin,
+// get_pack_levels); writes stay on REST, and governance_test.go fails the
+// build on a write-verb tool name. The two exceptions are
+// declare_pack_level and retire_pack_level, which
+// docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md adds as an amendment of
+// ADR 0005 for those two tools only; they run the same use cases, outbox
+// and events as the REST routes. This
 // package depends inward on the application layer and the domain only --
 // never on an outbound adapter or the REST adapter -- and nothing else may
 // depend on it (internal/architecture's TestMCPAdapterDependencyRule). The
@@ -29,13 +34,16 @@ const (
 )
 
 // instructions is what an MCP client is told about this server at initialize.
-const instructions = "Product master data of the warehouse (read-only): look up one SKU with get_product " +
+const instructions = "Product master data of the warehouse: look up one SKU with get_product " +
 	"(description, handling classification, physical profile, version), page through products with list_products " +
 	"(optionally only those carrying a handling_tag, or only classified/unclassified ones), read just the handling " +
 	"classification with get_product_classification (handling tags Hazmat, Fragile, TemperatureSensitive, Oversized, " +
 	"HighValue; temperature class; DOT hazard class; whether it is native or legacy-import) or just the declared vs " +
-	"measured dimensions with get_physical_profile. Nothing here changes data: registering, classifying and " +
-	"measuring products are REST operations of product-master."
+	"measured dimensions with get_physical_profile. Packaging: resolve_gtin turns a scanned GTIN into the SKU, pack " +
+	"level (EACH, INNER, CASE, PALLET) and units per pack it identifies; get_pack_levels lists a SKU's whole hierarchy, " +
+	"retired levels included. Only declare_pack_level and retire_pack_level change data (a pack level's GTIN, and its " +
+	"end date); the content quantity of an active level never changes, a new quantity needs a new GTIN. Registering, " +
+	"classifying and measuring products are REST operations of product-master."
 
 // NewServer builds the MCP server for this bounded context with every tool
 // registered.

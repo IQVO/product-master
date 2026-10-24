@@ -130,8 +130,8 @@ at stage E.
 
 | Topic | Direction | Who | Consumer group | Key | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `warehouse.product-master.events` | produced | outbox relay in `cmd/api` (always on) | n/a | SKU | Published Language: five `com.warehouse.wms.product-master.product.*` types, CloudEvents 1.0 structured mode. |
-| `warehouse.product-master.analytics` | produced | outbox relay in `cmd/api` | n/a | SKU | Same five events, same CloudEvents `id`, dataschema `urn:warehouse:product-master:analytics:<EventName>:v1`. |
+| `warehouse.product-master.events` | produced | outbox relay in `cmd/api` (always on) | n/a | SKU | Published Language: eight `com.warehouse.wms.product-master.product.*` types (five unit types and the three pack level types of ADR 0011), CloudEvents 1.0 structured mode. |
+| `warehouse.product-master.analytics` | produced | outbox relay in `cmd/api` | n/a | SKU | Same five unit events (not the pack level events), same CloudEvents `id`, dataschema `urn:warehouse:product-master:analytics:<EventName>:v1`. |
 | `warehouse.product-master.analytics` | consumed | `cmd/product-projector` | `ANALYTICS_CONSUMER_GROUP` (required, no default in the binary; the chart value `analytics.projector.consumerGroup` defaults to `product-master-analytics`) | | At-least-once; offsets committed only after the event is applied or dead-lettered. |
 | `warehouse.product-master.analytics.dlq` | produced | `cmd/product-projector` | n/a | original key | Poison messages, raw and unmodified, plus `x-dlq-*` headers. |
 
