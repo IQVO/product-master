@@ -71,9 +71,17 @@ All errors are RFC 7807 documents with `type` =
 | `400 invalid-dot-hazard-class`, `dot-hazard-class-not-applicable` | `dotHazardClass` outside 1..9 (an explicit `0` included), or present without `Hazmat`. | Omit it or send 1..9 with `Hazmat`. |
 | `400 invalid-dimension`, `invalid-weight` | A dimension outside 1..20000 mm or a weight outside 1..2000000 g. | Fix the values. |
 | `400 measured-at-in-future` | `measuredAt` is after the service clock. | Check the device clock. |
+| `400 invalid-gtin` | A GTIN of the wrong length (not 8, 12, 13 or 14 digits), with a non-digit, an all-zero number, or a wrong mod-10 check digit (also on `GET /gtins/{gtin}`). | Fix the number as printed on the barcode. |
+| `400 variable-measure-unsupported` | A GTIN-14 with indicator digit 9 (variable-measure item); not supported (ADR 0011). | Use a fixed-measure GTIN. |
+| `400 invalid-pack-level`, `invalid-pack-quantity`, `invalid-reason` | A level other than the upper-case `EACH`, `INNER`, `CASE`, `PALLET`; `qtyOfChild` below 2 or above 1000000 (or any on EACH), a `unitsPerPack` that is not `qtyOfChild` times the child's factor; a retire reason with a control character or over 200 characters. | Fix the value. |
+| `404 gtin-not-found`, `pack-level-not-found` | No pack level holds the GTIN; the SKU never had that level (retire) or has no active one (measure). | Declare the level, or check the GTIN. |
 | `404 product-not-found` | The SKU is not registered. Attributes of an unknown SKU are never an implicit registration. | `PUT /products/{sku}` first. |
 | `404 product-classification-not-found` | `GET .../classification` on a registered but unclassified product. | Classify it, or read `GET /products/{sku}`. |
-| `409 stale-measurement` | The measurement is older than the one already recorded. | Send only newer readings. |
+| `409 stale-measurement` | The measurement is older than the one already recorded (unit or pack level). | Send only newer readings. |
+| `409 pack-quantity-immutable` | A declaration changes `qtyOfChild`, `unitsPerPack` or `childGtin` of an ACTIVE level under its existing GTIN (GS1: a new quantity is a new GTIN). | Declare the level with the NEW GTIN (it end-dates the old one), then re-declare the levels above it. |
+| `409 gtin-already-assigned` | The GTIN already identifies another SKU's level, another level of this SKU, or a retired level (GTINs are never reused). | Use the right GTIN; resolve the holder with `GET /gtins/{gtin}`. |
+| `409 pack-level-order` | A level above EACH names no `childGtin`, or the child is not an ACTIVE, lower level of this product. | Declare the lower level first. |
+| `409 pack-dimensions-below-contents` | A pack's declared or measured weight is below `qtyOfChild` times the child's known weight. | Check the units (g) and the child weight. |
 | `409 concurrent-modification` | Two writes to the same SKU raced; the version guard rejected the loser. | Re-read the product and retry. |
 | `500 internal-error` | Unmapped error, logged as `request failed` (the detail is never returned). | Read the log line. |
 

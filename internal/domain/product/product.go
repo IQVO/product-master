@@ -23,6 +23,7 @@ type Product struct {
 	classification *Classification
 	source         ClassificationSource
 	profile        PhysicalProfile
+	packaging      PackagingHierarchy
 	version        int64
 }
 
@@ -41,7 +42,13 @@ func Register(sku SKU, description string, now time.Time) (*Product, []Event, er
 // Rehydrate rebuilds a persisted product without re-running invariants.
 // classification and source are nil/"" for an unclassified product.
 func Rehydrate(sku SKU, description string, classification *Classification, source ClassificationSource, profile PhysicalProfile, version int64) *Product {
-	return &Product{sku: sku, description: description, classification: classification, source: source, profile: profile, version: version}
+	return RehydrateWithPackaging(sku, description, classification, source, profile, PackagingHierarchy{}, version)
+}
+
+// RehydrateWithPackaging is Rehydrate for a product that has pack levels
+// (ADR 0011).
+func RehydrateWithPackaging(sku SKU, description string, classification *Classification, source ClassificationSource, profile PhysicalProfile, packaging PackagingHierarchy, version int64) *Product {
+	return &Product{sku: sku, description: description, classification: classification, source: source, profile: profile, packaging: packaging, version: version}
 }
 
 // RehydrateClassification rebuilds a persisted classification without

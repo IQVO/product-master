@@ -146,7 +146,7 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | Dimensioning device or operator | Record measurement | Command | REST `PUT /products/{sku}/dimensions/measured` | OHS |
 | Operator, console, agent | Get product, classification, physical profile | Query | REST `GET /products/{sku}`, `/classification`, `/physical-profile` | OHS |
 | Operator, console, agent | List products | Query | REST `GET /products` (filters `handlingTag`, `classified`) | OHS |
-| `warehouse-ops-agent` | Get product, list products, get classification, get physical profile | Query | MCP (`cmd/mcp`) tools `get_product`, `list_products`, `get_product_classification`, `get_physical_profile` | OHS, read-only (ADR 0005); its ADR 0020 |
+| `warehouse-ops-agent` | Get product, list products, get classification, get physical profile, resolve GTIN, get pack levels (declare and retire pack level exist but that client does not use them) | Query | MCP (`cmd/mcp`) tools `get_product`, `list_products`, `get_product_classification`, `get_physical_profile`, `resolve_gtin`, `get_pack_levels` (+ `declare_pack_level`, `retire_pack_level`) | OHS, read-only for this customer (ADR 0005, amended by ADR 0011); its ADR 0020 |
 | `warehouse-console` (hosting `productmaster_mfe`) | All of the REST rows above | Command / Query | REST through Kong `/api/product-master` | OHS; the remote is this context's own code (`web/`) |
 | Operator | Master data quality, freshness | Query | REST `GET /reports/master-data-quality`, `GET /reports/freshness` on `cmd/product-reports` (no console screen or agent uses it yet) | Own data product (ADR 0006) |
 
@@ -158,8 +158,9 @@ in the repository is `cmd/product-projector`, which reads this context's own
 analytics topic.
 
 No REST endpoint or MCP tool is authenticated (fleet-wide revert of
-2026-09-11). The MCP server is read-only: a governance test fails the build on
-any write-verb tool name (ADR 0005).
+2026-09-11). The MCP server is read-only but for two tools, `declare_pack_level`
+and `retire_pack_level` (ADR 0011 amends ADR 0005 for those two only): a
+governance test fails the build on any other write-verb tool name.
 
 ## Outbound Communication
 

@@ -40,7 +40,7 @@ API are unauthenticated fleet-wide, and access control is the cluster boundary.
 | `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute on every span and metric. | `internal/adapters/outbound/telemetry/telemetry.go` (`Environment`) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` (the warehouse-console shell's dev port) | no | Comma-separated browser origins allowed by the CORS middleware (entries are trimmed). Allowed methods `GET` and `PUT`, headers `Accept` and `Content-Type`, no credentials. Read once, when the router is built. Add `http://localhost:5191` to run the standalone remote (`web/`, `npm run dev`) against a local API. In the kind cluster Kong's CORS plugin handles browsers, so the chart leaves it unset. | `internal/adapters/inbound/http/server.go` (`corsAllowedOrigins`) |
 
-## `cmd/mcp` (read-only MCP server)
+## `cmd/mcp` (MCP server; read-only except two pack level tools)
 
 | Variable | Default | Required | Meaning | Source |
 | --- | --- | --- | --- | --- |
@@ -53,7 +53,11 @@ API are unauthenticated fleet-wide, and access control is the cluster boundary.
 | `ENVIRONMENT` | `local` | no | `deployment.environment.name` resource attribute. | `internal/adapters/outbound/telemetry/telemetry.go` |
 
 `cmd/mcp` reads no Kafka variable and no `EVENT_PUBLISHER`: it never starts the
-outbox relay and never dials a broker.
+outbox relay and never dials a broker. Its two write tools (`declare_pack_level`,
+`retire_pack_level`, ADR 0011) insert the pack level rows and the outbox rows
+into `DATABASE_URL`'s database in one transaction; the relay in `cmd/api`
+publishes them, so the database role of `DATABASE_URL` needs write access to
+`products`, `product_pack_levels` and `outbox_events`.
 
 ## `cmd/product-projector` (analytics writer)
 

@@ -1,0 +1,1 @@
+{"parameters":[{"name":"gtin","in":"path","required":true,"description":"A GTIN of 8, 12, 13 or 14 digits with a valid mod-10 check digit; normalised to 14 digits before the lookup.","schema":{"type":"string","pattern":"^[0-9]{8,14}$"},"example":"4006381333931"}]}

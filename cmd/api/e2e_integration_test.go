@@ -511,7 +511,7 @@ func phaseRestart(t *testing.T, e env, s *service, db pgView, brokers []string) 
 	return s2
 }
 
-// Phase 7: /readyz follows the dependencies. Postgres goes first (Kafka still
+// Phase 8: /readyz follows the dependencies. Postgres goes first (Kafka still
 // up): only postgres is named. Then Kafka goes: kafka is named too.
 // /healthz stays liveness and answers 200 throughout.
 func phaseDependenciesGoAway(t *testing.T, s *service, pg *tcpostgres.PostgresContainer, kc *tckafka.KafkaContainer) {
@@ -536,6 +536,90 @@ func phaseDependenciesGoAway(t *testing.T, s *service, pg *tcpostgres.PostgresCo
 	}
 }
 
+// Phase 7: the packaging hierarchy (ADR 0011) through REST on the real stack.
+// Each accepted change lands as a CloudEvent with the FULL type on the
+// integration topic ONLY, in order, after the five older messages; the GTIN
+// is unique fleet-wide in the real database; a quantity change on an active
+// level is refused and publishes nothing.
+func phasePackLevels(t *testing.T, s *service, db pgView, brokers []string) {
+	t.Helper()
+	const (
+		eachGTIN  = "4006381333931"
+		caseGTIN  = "24006381333935"
+		case2GTIN = "34006381333932"
+	)
+	s.call(http.MethodPut, "/products/SKU-2/pack-levels/EACH", `{"gtin":"`+eachGTIN+`","isOrderable":true}`, http.StatusCreated)
+	s.call(http.MethodPut, "/products/SKU-2/pack-levels/CASE",
+		`{"gtin":"`+caseGTIN+`","childGtin":"`+eachGTIN+`","qtyOfChild":12,"isDespatchUnit":true}`, http.StatusCreated)
+	s.call(http.MethodPut, "/products/SKU-2/pack-levels/CASE",
+		`{"gtin":"`+case2GTIN+`","childGtin":"`+eachGTIN+`","qtyOfChild":24,"isDespatchUnit":true}`, http.StatusOK) // supersedes: Retired + Declared
+
+	// refused: the quantity of an active level, and a GTIN another SKU holds (SKU-1 exists since phaseWrites)
+	if status, body := s.try(http.MethodPut, "/products/SKU-2/pack-levels/CASE",
+		`{"gtin":"`+case2GTIN+`","childGtin":"`+eachGTIN+`","qtyOfChild":36,"isDespatchUnit":true}`); status != http.StatusConflict || !strings.Contains(body, "pack-quantity-immutable") {
+		t.Fatalf("quantity change = %d %s", status, body)
+	}
+	if status, body := s.try(http.MethodPut, "/products/SKU-1/pack-levels/EACH", `{"gtin":"`+eachGTIN+`"}`); status != http.StatusConflict || !strings.Contains(body, "gtin-already-assigned") {
+		t.Fatalf("duplicate GTIN = %d %s", status, body)
+	}
+
+	type resolved struct {
+		SKU          string `json:"sku"`
+		Level        string `json:"level"`
+		UnitsPerPack int    `json:"unitsPerPack"`
+		Active       bool   `json:"active"`
+		EffectiveTo  string `json:"effectiveTo"`
+	}
+	for gtin, want := range map[string]struct {
+		level  string
+		units  int
+		active bool
+	}{caseGTIN: {"CASE", 12, false}, case2GTIN: {"CASE", 24, true}, "0" + eachGTIN: {"EACH", 1, true}} {
+		var res resolved // fresh each time: Unmarshal keeps fields the next body omits
+		if err := json.Unmarshal([]byte(s.call(http.MethodGet, "/gtins/"+gtin, "", http.StatusOK)), &res); err != nil {
+			t.Fatal(err)
+		}
+		if res.SKU != "SKU-2" || res.Level != want.level || res.UnitsPerPack != want.units || res.Active != want.active || (res.EffectiveTo != "") == want.active {
+			t.Fatalf("GET /gtins/%s = %+v, want %+v", gtin, res, want)
+		}
+	}
+	if status, _ := s.try(http.MethodGet, "/gtins/5901234123457", ""); status != http.StatusNotFound {
+		t.Fatalf("unknown GTIN = %d", status)
+	}
+
+	// SKU-2 was at version 1; EACH, CASE, then Retired + Declared (two versions): 5 rows added, 4 integration events
+	waitFor(t, 60*time.Second, "the relay to publish the pack level events", func() bool {
+		return db.count(`SELECT count(*) FROM outbox_events WHERE published_at IS NULL`) == 0
+	})
+	if n := db.count(`SELECT count(*) FROM outbox_events WHERE topic = $1 AND event_type LIKE $2`, topicEvents, typePrefix+"ProductPackLevel%"); n != 4 {
+		t.Fatalf("pack level outbox rows on the integration topic = %d, want 4", n)
+	}
+	if n := db.count(`SELECT count(*) FROM outbox_events WHERE topic = $1 AND event_type LIKE $2`, topicAnalytics, typePrefix+"ProductPackLevel%"); n != 0 {
+		t.Fatalf("pack level outbox rows on the analytics topic = %d, want 0 (integration only)", n)
+	}
+	msgs := consume(t, brokers, topicEvents, 9)
+	want := []string{"ProductPackLevelDeclared", "ProductPackLevelDeclared", "ProductPackLevelRetired", "ProductPackLevelDeclared"}
+	if got := publishedNames(t, msgs[5:]); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("pack level events on %s = %v, want %v", topicEvents, got, want)
+	}
+	for i, m := range msgs[5:] {
+		assertEnvelope(t, m, want[i], "events", "SKU-2")
+	}
+	var retired struct {
+		Level       string `json:"level"`
+		GTIN        string `json:"gtin"`
+		EffectiveTo string `json:"effective_to"`
+		Reason      string `json:"reason"`
+		Version     int64  `json:"version"`
+	}
+	if err := json.Unmarshal(decodeEnvelope(t, msgs[7]).Data, &retired); err != nil || retired.GTIN != "24006381333935" || retired.Reason != "superseded" || retired.Version != 4 || retired.EffectiveTo == "" {
+		t.Fatalf("ProductPackLevelRetired data = %+v (%v)", retired, err)
+	}
+	// the analytics topic is exactly as before: five messages, no pack level
+	noMoreMessages(t, brokers, topicAnalytics, 5)
+	noMoreMessages(t, brokers, topicEvents, 9)
+}
+
 func TestRunOnRealPostgresAndKafka(t *testing.T) {
 	pg, dbURL := startPostgres(t)
 	kc, brokers := startKafka(t)
@@ -549,5 +633,6 @@ func TestRunOnRealPostgresAndKafka(t *testing.T) {
 	phaseTopics(t, brokers)
 	phaseReplay(t, s, db, brokers)
 	s = phaseRestart(t, e, s, db, brokers)
+	phasePackLevels(t, s, db, brokers)
 	phaseDependenciesGoAway(t, s, pg, kc)
 }

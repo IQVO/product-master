@@ -1,0 +1,1 @@
+{"parameters":[{"name":"sku","in":"path","required":true,"description":"The SKU (1..64 characters, no whitespace, control characters or `/`).","schema":{"type":"string","minLength":1,"maxLength":64,"pattern":"^[^\\s/]+$"},"example":"SKU-1"}]}

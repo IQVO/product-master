@@ -35,6 +35,12 @@ in the last column.
 | **Discrepancy** | Both parts present and measured volume or weight differs from declared by more than 10 % of declared. Information, not a rejection. | `Discrepancy()`, `exceedsTenPercent` | |
 | **Version** | Starts at 1, +1 per accepted change; guards the write and rides on every event. | `version`, `Version()`, `bump` | Consumers apply only a greater `version` |
 | **No change** | A command whose result equals the current state: no event, no version bump, nothing saved. | commands returning `nil` events; `Writer.persist` | |
+| **Pack level** | One packaging level of a SKU: `EACH`, `INNER`, `CASE` or `PALLET`, identified by a GTIN (ADR 0011). | `PackLevel`, `PackLevelDef`, `PackagingHierarchy` | REST `.../pack-levels/{level}` |
+| **GTIN** | The 14-digit zero-left-padded GS1 number of a pack level; 8, 12, 13 and 14 digit input with a valid mod-10 check digit is accepted. One GTIN identifies exactly one (sku, level), fleet-wide, for ever. | `gs1.GTIN` (`internal/domain/shared/gs1`), `ParseGTIN` | indicator digit 9 (variable measure) is rejected |
+| **Units per pack** | The direct factor from a pack level to eaches (1 for EACH), stored, not recomputed by chaining. Eaches are the ledger unit; a bare quantity never means cases. | `PackLevelDef.UnitsPerPack()` | REST `unitsPerPack`, event `units_per_pack` |
+| **Quantity of child** | How many packs of the child level make one of this level (at least 2). | `PackLevelDef.QtyOfChild()` | REST `qtyOfChild` |
+| **Supersede** | Declaring a new GTIN at a level that is active: the old level is end-dated (`superseded`) and kept, the new one starts. The only way to change a content quantity. | `DeclarePackLevel` | `ProductPackLevelRetired` then `ProductPackLevelDeclared` |
+| **Retire** | End-date the active level (`effectiveTo`); the GTIN keeps resolving, inactive, and is never reassigned. | `RetirePackLevel` | REST `POST ...:retire` |
 | **Local copy** | A downstream context's own table of this context's facts, fed by events and guarded by `version`. | (in the consumers) | ADR 0001, ADR 0003 stage D |
 | **Unit of work** | One atomic transaction around load, command, guarded save and outbox insert. | `ports.UnitOfWork` | |
 | **Outbox** | The table events wait in until the relay publishes them. | `outbox_events`, `ports.OutboxRepository`, `outbox.Relay` | |
@@ -42,8 +48,10 @@ in the last column.
 ## Vocabulary only (not implemented)
 
 ADR 0001 lists these as explicitly out of scope for v1, to be decided by later
-ADRs: pack hierarchy and units of measure (each, inner, case, pallet),
-lot / serial / expiry tracking policy, shelf life, kits and bundles, velocity
-class, lifecycle states (discontinue, block), barcodes and GTINs, and every
-commercial attribute (title, price, images). There is also no "unclassify"
+ADRs: lot / serial / expiry tracking policy, shelf life, kits and bundles, velocity
+class, lifecycle states (discontinue, block), and every commercial attribute
+(title, price, images). Pack hierarchy, units of measure and GTINs left this list
+with ADR 0011; variable-measure items (GTIN indicator digit 9), commingling of
+stock by GTIN across owners and mixed cases (no pack GTIN) are still not
+designed. There is also no "unclassify"
 command or event in v1, and no measurement history (ADR 0002).

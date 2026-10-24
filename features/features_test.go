@@ -78,6 +78,11 @@ func (w *world) start() {
 		RecordMeasurement: &usecases.RecordMeasurement{Writer: writer},
 		GetProduct:        &usecases.GetProduct{Products: products},
 		ListProducts:      &usecases.ListProducts{Products: products},
+
+		DeclarePackLevel:           &usecases.DeclarePackLevel{Writer: writer},
+		RetirePackLevel:            &usecases.RetirePackLevel{Writer: writer},
+		RecordPackLevelMeasurement: &usecases.RecordPackLevelMeasurement{Writer: writer},
+		ResolveGTIN:                &usecases.ResolveGTIN{Products: products},
 	}
 	w.server = httptest.NewServer(inboundhttp.NewRouter(s))
 	w.outbox = ob
@@ -346,4 +351,5 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	sc.Step(`^there is no next page$`, w.thereIsNoNextPage)
 
 	registerWave2Steps(sc, w)
+	registerPackagingSteps(sc, w)
 }

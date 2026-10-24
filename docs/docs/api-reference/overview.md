@@ -10,15 +10,17 @@ sidebar_position: 1
 | Interface | Source of truth | Notes |
 | --- | --- | --- |
 | REST | `apis/openapi.yaml` (OpenAPI 3.0.3, version 1.0.0) | Pages under *REST* are generated from the spec; do not edit them by hand. Servers: `http://localhost:8080` (local) and `http://localhost:8000/api/product-master` (kind cluster through Kong). The `Reports` paths name their own server, `http://localhost:8092` (`cmd/product-reports`). |
-| MCP | `internal/adapters/inbound/mcp` (registry golden `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`) | Read-only tools `get_product`, `list_products`, `get_product_classification`, `get_physical_profile` on `cmd/mcp` (`:8090`, `/` and `/mcp`); [ADR 0005](/docs/adr/0005-mcp-server-adoption). |
-| Events | `apis/asyncapi.yaml` (AsyncAPI 2.6.0, version 1.0.0) | Summarised on the [event catalogue](/docs/api-reference/events). |
+| MCP | `internal/adapters/inbound/mcp` (registry golden `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`) | Read-only tools `get_product`, `list_products`, `get_product_classification`, `get_physical_profile`, `resolve_gtin`, `get_pack_levels` and the two write tools `declare_pack_level`, `retire_pack_level` ([ADR 0011](/docs/adr/0011-packaging-hierarchy-with-gs1-gtin) amends ADR 0005 for those two) on `cmd/mcp` (`:8090`, `/` and `/mcp`); [ADR 0005](/docs/adr/0005-mcp-server-adoption). |
+| Events | `apis/asyncapi.yaml` (AsyncAPI 2.6.0, version 1.1.0) | Summarised on the [event catalogue](/docs/api-reference/events). |
 
 ## Conventions
 
-- **Every write is an idempotent `PUT`.** Repeating a request with the same
-  body changes nothing, bumps no version and publishes no event. There is no
-  resource-creating `POST`, so the fleet `Idempotency-Key` middleware does not
-  apply.
+- **Every write is idempotent.** Repeating a request with the same body
+  changes nothing, bumps no version and publishes no event. Every write is a
+  `PUT`, except `POST /products/{sku}/pack-levels/{level}:retire` (ADR 0011),
+  which is an action on an existing level and idempotent too: retiring a
+  retired level changes nothing. There is no resource-creating `POST`, so the
+  fleet `Idempotency-Key` middleware does not apply.
 - **Register first.** `PUT /products/{sku}` must succeed before the
   classification or dimension endpoints accept the SKU; otherwise they answer
   `404 product-not-found`.
@@ -33,7 +35,12 @@ sidebar_position: 1
   `dot-hazard-class-not-applicable`, `invalid-dimension`, `invalid-weight`,
   `measured-at-in-future`, `product-not-found`,
   `product-classification-not-found`, `stale-measurement`,
-  `concurrent-modification` and `internal-error`.
+  `concurrent-modification` and `internal-error`, plus the packaging slugs
+  (ADR 0011): `invalid-gtin`, `variable-measure-unsupported`,
+  `invalid-pack-level`, `invalid-pack-quantity`, `invalid-reason`,
+  `gtin-not-found`, `pack-level-not-found` (404), `gtin-already-assigned`,
+  `pack-quantity-immutable`, `pack-level-order` and
+  `pack-dimensions-below-contents` (409).
 - **Request bodies** reject unknown fields; JSON field names are camelCase on
   REST (`handlingTags`, `lengthMm`, `measuredAt`) and snake_case on the
   events.

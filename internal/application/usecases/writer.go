@@ -89,3 +89,6 @@ func parseSKU(raw string) (product.SKU, error) {
 
 // isNotFound reports whether err is the repository's not-found error.
 func isNotFound(err error) bool { return errors.Is(err, repository.ErrProductNotFound) }
+
+// isGtinNotFound reports whether err is the repository's GTIN-not-found error.
+func isGtinNotFound(err error) bool { return errors.Is(err, repository.ErrGtinNotFound) }

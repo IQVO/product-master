@@ -16,7 +16,7 @@ fitness tests in `internal/architecture`:
 | --- | --- |
 | Domain | `internal/domain/product` |
 | Application (use cases, ports) | `internal/application/{usecases,ports,repository,outbox}`; analytics read model in `internal/analytics` |
-| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (the analytics consumer, wired only by `cmd/product-projector`), `internal/adapters/inbound/mcp` (read-only MCP tools) |
+| Inbound adapters | `internal/adapters/inbound/http` (REST and the reports router), `internal/adapters/inbound/kafka` (the analytics consumer, wired only by `cmd/product-projector`), `internal/adapters/inbound/mcp` (MCP tools: read-only but for the two pack level writes of ADR 0011) |
 | Outbound adapters | `internal/adapters/outbound/{postgres,memory,kafka,outbox,clock,telemetry,analyticsstore}` |
 | CloudEvents helper | `internal/adapters/kafka/cloudevents` |
 | Composition roots | `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `cmd/product-reports/main.go` |
@@ -36,7 +36,7 @@ each is its own Deployment in `charts/product-master`.
 | Binary | Role | Port | Reads | Writes |
 | --- | --- | --- | --- | --- |
 | `cmd/api` | REST API and the outbox relay; needs `DATABASE_URL` and `KAFKA_BROKERS` or it does not boot | `:8080` (`HTTP_ADDR`): REST, `/healthz`, `/readyz` (Postgres ping and Kafka broker check), `/metrics` | OLTP Postgres | OLTP Postgres; `warehouse.product-master.events` and `warehouse.product-master.analytics` (relay) |
-| `cmd/mcp` | Read-only MCP server, four tools, Streamable HTTP at `/` and `/mcp` | `:8090` (`MCP_ADDR`) | OLTP Postgres | nothing (it runs the idempotent OLTP migrations at start) |
+| `cmd/mcp` | MCP server, eight tools (six read-only, the two pack level writes of ADR 0011), Streamable HTTP at `/` and `/mcp` | `:8090` (`MCP_ADDR`) | OLTP Postgres | nothing (it runs the idempotent OLTP migrations at start) |
 | `cmd/product-projector` | Analytics writer: projects the analytics topic into the analytical database | `:8091` (`ADMIN_ADDR`): `/healthz`, `/readyz` only | `warehouse.product-master.analytics` (group `ANALYTICS_CONSUMER_GROUP`) | analytical Postgres; `warehouse.product-master.analytics.dlq` |
 | `cmd/product-reports` | Read-only reports API (`/reports/master-data-quality`, `/reports/freshness`) | `:8092` (`HTTP_ADDR`) | analytical Postgres (read-only pool) | nothing |
 
@@ -55,7 +55,7 @@ flowchart TB
   end
   subgraph pm["product-master (one image, four Deployments)"]
     API["cmd/api :8080<br/>REST + outbox relay"]
-    MCP["cmd/mcp :8090<br/>read-only MCP"]
+    MCP["cmd/mcp :8090<br/>MCP (2 write tools)"]
     PROJ["cmd/product-projector :8091<br/>analytics writer"]
     REP["cmd/product-reports :8092<br/>reports API"]
   end
@@ -90,7 +90,7 @@ six downstream contexts that consume `warehouse.product-master.events` (see
 
 | Store | Tables | Writers | Readers | Schema |
 | --- | --- | --- | --- | --- |
-| OLTP Postgres (`DATABASE_URL`) | `products`, `outbox_events`, `processed_events` (no writer since stage E) | `cmd/api` | `cmd/api`, `cmd/mcp` | `internal/adapters/outbound/postgres/migrations` (embedded, applied by `cmd/api` and `cmd/mcp` at start) |
+| OLTP Postgres (`DATABASE_URL`) | `products`, `product_pack_levels` (ADR 0011), `outbox_events`, `processed_events` (no writer since stage E) | `cmd/api`, `cmd/mcp` (`declare_pack_level`, `retire_pack_level` only) | `cmd/api`, `cmd/mcp` | `internal/adapters/outbound/postgres/migrations` (embedded, applied by `cmd/api` and `cmd/mcp` at start) |
 | Analytical Postgres (`ANALYTICS_DATABASE_URL`) | `analytics_processed_events`, `product_facts`, `profile_states` | `cmd/product-projector` | `cmd/product-reports` | `analytics/migrations` (embedded, applied by the projector at start) |
 
 Postgres and Kafka are the only runtime

@@ -217,12 +217,13 @@ readinessProbe:
 terminationGracePeriodSeconds: 40
 
 # --- MCP server (docs/adr/0005) ---
-# The Model Context Protocol server (cmd/mcp, Streamable HTTP only, READ-ONLY
-# tools). DISABLED by default. Enabling it renders its own Deployment +
+# The Model Context Protocol server (cmd/mcp, Streamable HTTP only; read-only
+# tools plus declare_pack_level and retire_pack_level, ADR 0011). DISABLED by default. Enabling it renders its own Deployment +
 # Service (component=mcp) over the same OLTP database, served at "/" and
 # "/mcp" with GET /healthz probes, command /app/mcp. Env names in
 # templates/mcp-deployment.yaml match cmd/mcp/main.go. It starts no outbox
-# relay and dials no Kafka. No auth / API key: MCP servers are
+# relay and dials no Kafka (its two write tools enqueue into the outbox that
+# cmd/api's relay drains; the DATABASE_URL role must be able to write). No auth / API key: MCP servers are
 # unauthenticated fleet-wide.
 #
 # Deliberately NOT HPA-scalable (no autoscaling.mcp block): the SDK's

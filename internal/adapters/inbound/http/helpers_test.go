@@ -17,6 +17,7 @@ import (
 	"github.com/claudioed/product-master/internal/application/repository"
 	"github.com/claudioed/product-master/internal/application/usecases"
 	"github.com/claudioed/product-master/internal/domain/product"
+	"github.com/claudioed/product-master/internal/domain/shared/gs1"
 )
 
 var now = time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
@@ -36,6 +37,13 @@ func (r *faultyRepo) Get(ctx context.Context, sku product.SKU) (*product.Product
 		return nil, r.getErr
 	}
 	return r.ProductRepo.Get(ctx, sku)
+}
+
+func (r *faultyRepo) GetByGTIN(ctx context.Context, gtin gs1.GTIN) (*product.Product, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
+	return r.ProductRepo.GetByGTIN(ctx, gtin)
 }
 
 func (r *faultyRepo) Save(ctx context.Context, p *product.Product, loaded int64) error {
@@ -71,8 +79,14 @@ func newFixture(t *testing.T) *fixture {
 		RecordMeasurement: &usecases.RecordMeasurement{Writer: w},
 		GetProduct:        &usecases.GetProduct{Products: repo},
 		ListProducts:      &usecases.ListProducts{Products: repo},
-		Readiness:         readiness,
-		Metrics:           http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "# metrics\n") }),
+
+		DeclarePackLevel:           &usecases.DeclarePackLevel{Writer: w},
+		RetirePackLevel:            &usecases.RetirePackLevel{Writer: w},
+		RecordPackLevelMeasurement: &usecases.RecordPackLevelMeasurement{Writer: w},
+		ResolveGTIN:                &usecases.ResolveGTIN{Products: repo},
+
+		Readiness: readiness,
+		Metrics:   http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "# metrics\n") }),
 	}
 	srv := httptest.NewServer(inboundhttp.NewRouter(s))
 	t.Cleanup(srv.Close)

@@ -18,24 +18,35 @@ import (
 //	go test ./internal/adapters/inbound/mcp -run TestToolRegistryGolden -update
 var update = flag.Bool("update", false, "rewrite the MCP tool registry golden file")
 
-// wantTools is the curated, READ-ONLY tool set (docs/adr/0005).
-var wantTools = []string{"get_physical_profile", "get_product", "get_product_classification", "list_products"}
+// wantTools is the curated tool set (docs/adr/0005 as amended by ADR 0011):
+// six read-only tools and the two write tools of writeTools.
+var wantTools = []string{
+	"declare_pack_level", "get_pack_levels", "get_physical_profile", "get_product", "get_product_classification",
+	"list_products", "resolve_gtin", "retire_pack_level",
+}
+
+// writeTools are the ONLY tools allowed to write (docs/adr/0011 amends ADR
+// 0005 for these two). Adding a third is a deliberate, reviewed act: a new ADR.
+var writeTools = map[string]bool{"declare_pack_level": true, "retire_pack_level": true}
 
 // maxTools is the tool budget. Raising it is a deliberate, reviewed act (an
 // ADR 0005 amendment): TestToolSurface still pins the exact curated set.
-const maxTools = 4
+const maxTools = 8
 
 // writeVerbs are the verbs of product-master's write use cases (and the
 // generic mutators). A tool whose name contains one of them as a word is a
 // write tool, which the read-only MCP surface must never expose: writes go
 // through REST, the transactional outbox and the events consumers rely on.
-var writeVerbs = []string{"register", "classify", "declare", "record", "update", "delete", "set", "create"}
+var writeVerbs = []string{"register", "classify", "declare", "record", "update", "delete", "set", "create", "retire"}
 
 // writeVerbViolations returns one message per tool name carrying a write
-// verb as one of its snake_case words.
+// verb as one of its snake_case words, except the allow-listed writeTools.
 func writeVerbViolations(names []string) []string {
 	var out []string
 	for _, name := range names {
+		if writeTools[name] {
+			continue
+		}
 		for _, word := range strings.Split(name, "_") {
 			for _, verb := range writeVerbs {
 				if word == verb {
@@ -48,9 +59,10 @@ func writeVerbViolations(names []string) []string {
 }
 
 // The MCP governance charter's mechanical gate: the advertised tool set is
-// exactly the curated read-only one, within the budget, snake_case
-// verb_noun with NO write verb, annotated read-only, described, and every
-// argument is snake_case and documented.
+// exactly the curated one, within the budget, snake_case verb_noun with NO
+// write verb outside writeTools, read tools annotated read-only, write tools
+// annotated as writes, described, and every argument is snake_case and
+// documented.
 func TestToolSurface(t *testing.T) {
 	h := newHarness(t)
 	res, err := h.session.ListTools(t.Context(), nil)
@@ -73,6 +85,15 @@ func TestToolSurface(t *testing.T) {
 	for _, v := range writeVerbViolations(names) {
 		t.Error(v)
 	}
+	for name := range writeTools {
+		found := false
+		for _, n := range names {
+			found = found || n == name
+		}
+		if !found {
+			t.Errorf("write tool %q is allow-listed but not advertised", name)
+		}
+	}
 }
 
 // The write-verb sensor must actually be able to fail: every write verb in
@@ -86,7 +107,14 @@ func TestWriteVerbSensorFailsOnWriteNames(t *testing.T) {
 		}
 	}
 	if got := writeVerbViolations(wantTools); len(got) != 0 {
-		t.Errorf("read tool names were flagged: %v", got)
+		t.Errorf("curated tool names were flagged: %v", got)
+	}
+	// the allow-list is exactly the two ADR 0011 tools, by name
+	if len(writeTools) != 2 || !writeTools["declare_pack_level"] || !writeTools["retire_pack_level"] {
+		t.Errorf("writeTools = %v, want exactly declare_pack_level and retire_pack_level", writeTools)
+	}
+	if got := writeVerbViolations([]string{"declare_pack_levels", "retire_product", "declare_gtin"}); len(got) != 3 {
+		t.Errorf("a look-alike of an allowed write tool must still be flagged: %v", got)
 	}
 	// Substrings of a word are not verbs: "dataset" is not "set".
 	if got := writeVerbViolations([]string{"get_dataset", "list_records_count"}); len(got) != 0 {
@@ -107,7 +135,22 @@ func checkToolMetadata(t *testing.T, tool *sdk.Tool) {
 	if tool.Description == "" {
 		t.Errorf("tool %q has no description", tool.Name)
 	}
-	if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+	if tool.Annotations == nil {
+		t.Errorf("tool %q has no annotations", tool.Name)
+		return
+	}
+	if writeTools[tool.Name] {
+		// a write tool says so: not read-only, idempotent, closed-world, and a destructive hint stated either way
+		if tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint || tool.Annotations.DestructiveHint == nil ||
+			tool.Annotations.OpenWorldHint == nil || *tool.Annotations.OpenWorldHint {
+			t.Errorf("write tool %q has the wrong annotations: %+v", tool.Name, tool.Annotations)
+		}
+		if !strings.HasPrefix(tool.Description, "WRITE.") {
+			t.Errorf("write tool %q must announce itself in its description: %q", tool.Name, tool.Description)
+		}
+		return
+	}
+	if !tool.Annotations.ReadOnlyHint {
 		t.Errorf("tool %q is not annotated read-only: %+v", tool.Name, tool.Annotations)
 		return
 	}

@@ -2,7 +2,7 @@ asyncapi: 2.6.0
 
 info:
   title: product-master Domain Events
-  version: "1.0.0"
+  version: "1.1.0"
   contact:
     name: product-master maintainers
     url: https://github.com/IQVO/product-master
@@ -11,15 +11,29 @@ info:
     name: UNLICENSED
   description: |
     Event catalog for the **product-master** bounded context (WMS subdomain):
-    SKU-level product master data, i.e. handling classification and the
-    physical profile (ADR 0001, ADR 0002).
+    SKU-level product master data, i.e. handling classification, the
+    physical profile and the packaging hierarchy with GS1 GTINs (ADR 0001,
+    ADR 0002, ADR 0011).
 
-    **Published.** The `Product` aggregate raises five events, published to
+    **Published.** The `Product` aggregate raises eight events, published to
     `warehouse.product-master.events` through a **transactional outbox**: the
     product row and its already-encoded events are written in ONE database
     transaction and a relay drains them to Kafka (at-least-once; the CloudEvents
     `id` is stored with the outbox row, so a retry republishes the same `id`).
     A change that alters nothing raises no event.
+
+    **Packaging hierarchy (ADR 0011).** Three events carry the pack levels
+    (`EACH | INNER | CASE | PALLET`) of a SKU. They are additive and
+    integration-only (NOT written to the analytics stream). A GTIN is always
+    the 14-digit zero-left-padded string. Eaches are the ledger unit: `qty_of_child`
+    and `units_per_pack` are the only pack quantities, a bare quantity never
+    changes meaning. `units_per_pack` is the direct factor to eaches. Once a
+    level is active its quantities never change: a new content quantity is a
+    new GTIN at that level (declaring it end-dates the old level with a
+    `ProductPackLevelRetired`, reason `superseded`, in the same transaction,
+    one `version` apart). An end-dated level is kept: resolve a GTIN of an
+    in-flight ASN from your local copy, which must keep retired levels.
+    Dates and timestamps are RFC 3339 UTC.
 
     **Local copies, not lookups.** Sibling contexts (inventory-storage,
     order-management, wes-work-planning, fulfillment-execution) keep a local
@@ -89,6 +103,9 @@ channels:
           - $ref: "#/components/messages/ProductClassified"
           - $ref: "#/components/messages/ProductDimensionsDeclared"
           - $ref: "#/components/messages/ProductMeasured"
+          - $ref: "#/components/messages/ProductPackLevelDeclared"
+          - $ref: "#/components/messages/ProductPackLevelRetired"
+          - $ref: "#/components/messages/ProductPackLevelMeasured"
 
   warehouse.product-master.analytics:
     description: |
@@ -279,6 +296,119 @@ components:
               effective: { length_mm: 205, width_mm: 121, height_mm: 82, weight_g: 1720, volume_mm3: 2034010 }
               effective_source: "measured"
               discrepancy: true
+              version: 5
+
+    ProductPackLevelDeclared:
+      name: ProductPackLevelDeclared
+      title: Product pack level declared
+      summary: A pack level (EACH, INNER, CASE or PALLET) of a SKU was declared, or one of its mutable attributes changed.
+      description: |
+        `type` = `com.warehouse.wms.product-master.product.ProductPackLevelDeclared`;
+        subject and key = the SKU. Carries the FULL level after the change
+        (ADR 0011). `child_gtin` and `qty_of_child` are absent for EACH;
+        `units_per_pack` is 1 for EACH. `dims` are the DECLARED dimensions
+        (omitted when none); measurements arrive as `ProductPackLevelMeasured`.
+        Only `dims`, `is_orderable` and `is_despatch_unit` can change for a
+        GTIN already announced (the event is then re-sent in full); a new
+        content quantity is a new `gtin`.
+      contentType: application/cloudevents+json
+      tags:
+        - name: product
+      payload:
+        $ref: "#/components/schemas/ProductPackLevelDeclaredEvent"
+      examples:
+        - name: caseOf12
+          summary: SKU-1 declares a case of 12 eaches.
+          payload:
+            specversion: "1.0"
+            id: "3c2b1a09-8f7e-4d6c-9b5a-4a3b2c1d0e9f"
+            source: "/warehouse/product-master"
+            type: "com.warehouse.wms.product-master.product.ProductPackLevelDeclared"
+            subject: "SKU-1"
+            time: "2026-10-06T21:00:00Z"
+            datacontenttype: "application/json"
+            dataschema: "urn:warehouse:product-master:events:ProductPackLevelDeclared:v1"
+            data:
+              sku: "SKU-1"
+              level: "CASE"
+              gtin: "24006381333935"
+              child_gtin: "04006381333931"
+              qty_of_child: 12
+              units_per_pack: 12
+              dims: { length_mm: 400, width_mm: 300, height_mm: 200, weight_g: 6500 }
+              is_orderable: true
+              is_despatch_unit: true
+              effective_from: "2026-10-06T20:00:00Z"
+              version: 3
+
+    ProductPackLevelRetired:
+      name: ProductPackLevelRetired
+      title: Product pack level retired
+      summary: A pack level was end-dated; its GTIN stays resolvable.
+      description: |
+        `type` = `com.warehouse.wms.product-master.product.ProductPackLevelRetired`;
+        subject and key = the SKU. `reason` is `superseded` when a new GTIN was
+        declared at the same level (the matching `ProductPackLevelDeclared`
+        follows with the next `version`), else the reason given to the retire
+        command. The GTIN is never reused. The levels above it are NOT retired
+        by this event: re-declare them.
+      contentType: application/cloudevents+json
+      tags:
+        - name: product
+      payload:
+        $ref: "#/components/schemas/ProductPackLevelRetiredEvent"
+      examples:
+        - name: superseded
+          summary: The case GTIN was superseded by a new one.
+          payload:
+            specversion: "1.0"
+            id: "7b6a5948-3726-4150-8f9e-0d1c2b3a4958"
+            source: "/warehouse/product-master"
+            type: "com.warehouse.wms.product-master.product.ProductPackLevelRetired"
+            subject: "SKU-1"
+            time: "2026-10-06T21:01:00Z"
+            datacontenttype: "application/json"
+            dataschema: "urn:warehouse:product-master:events:ProductPackLevelRetired:v1"
+            data:
+              sku: "SKU-1"
+              level: "CASE"
+              gtin: "24006381333935"
+              effective_to: "2026-10-06T21:01:00Z"
+              reason: "superseded"
+              version: 4
+
+    ProductPackLevelMeasured:
+      name: ProductPackLevelMeasured
+      title: Product pack level measured
+      summary: A measurement of one pack of an active level was recorded.
+      description: |
+        `type` = `com.warehouse.wms.product-master.product.ProductPackLevelMeasured`;
+        subject and key = the SKU. The measurement of the declared-versus-measured
+        split (ADR 0002) per level; `device_id` is omitted for a manual one.
+      contentType: application/cloudevents+json
+      tags:
+        - name: product
+      payload:
+        $ref: "#/components/schemas/ProductPackLevelMeasuredEvent"
+      examples:
+        - name: cubiscan
+          summary: A cubiscan measured the case.
+          payload:
+            specversion: "1.0"
+            id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+            source: "/warehouse/product-master"
+            type: "com.warehouse.wms.product-master.product.ProductPackLevelMeasured"
+            subject: "SKU-1"
+            time: "2026-10-06T21:02:00Z"
+            datacontenttype: "application/json"
+            dataschema: "urn:warehouse:product-master:events:ProductPackLevelMeasured:v1"
+            data:
+              sku: "SKU-1"
+              level: "CASE"
+              gtin: "24006381333935"
+              dims: { length_mm: 410, width_mm: 310, height_mm: 210, weight_g: 6900 }
+              measured_at: "2026-10-06T14:05:00Z"
+              device_id: "CUBISCAN-03"
               version: 5
 
     ProductRegisteredAnalytics:
@@ -525,3 +655,74 @@ components:
                 discrepancy: { type: boolean }
                 version: { type: integer, minimum: 1 }
 
+    PackLevel:
+      type: string
+      enum: [EACH, INNER, CASE, PALLET]
+
+    Gtin:
+      type: string
+      pattern: '^[0-9]{14}$'
+      description: A GTIN, always the 14-digit zero-left-padded string with a valid mod-10 check digit.
+
+    PackDimensions:
+      type: object
+      required: [length_mm, width_mm, height_mm, weight_g]
+      properties:
+        length_mm: { type: integer, minimum: 1, maximum: 20000 }
+        width_mm: { type: integer, minimum: 1, maximum: 20000 }
+        height_mm: { type: integer, minimum: 1, maximum: 20000 }
+        weight_g: { type: integer, minimum: 1, maximum: 2000000 }
+
+    ProductPackLevelDeclaredEvent:
+      allOf:
+        - $ref: "#/components/schemas/CloudEventEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sku, level, gtin, units_per_pack, is_orderable, is_despatch_unit, effective_from, version]
+              properties:
+                sku: { type: string }
+                level: { $ref: "#/components/schemas/PackLevel" }
+                gtin: { $ref: "#/components/schemas/Gtin" }
+                child_gtin: { $ref: "#/components/schemas/Gtin" }
+                qty_of_child: { type: integer, minimum: 2, maximum: 1000000, description: Absent for EACH. }
+                units_per_pack: { type: integer, minimum: 1, maximum: 1000000, description: Direct factor to eaches; 1 for EACH. }
+                dims: { $ref: "#/components/schemas/PackDimensions" }
+                is_orderable: { type: boolean }
+                is_despatch_unit: { type: boolean }
+                effective_from: { type: string, format: date-time }
+                version: { type: integer, minimum: 1 }
+
+    ProductPackLevelRetiredEvent:
+      allOf:
+        - $ref: "#/components/schemas/CloudEventEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sku, level, gtin, effective_to, reason, version]
+              properties:
+                sku: { type: string }
+                level: { $ref: "#/components/schemas/PackLevel" }
+                gtin: { $ref: "#/components/schemas/Gtin" }
+                effective_to: { type: string, format: date-time }
+                reason: { type: string, minLength: 1, maxLength: 200 }
+                version: { type: integer, minimum: 1 }
+
+    ProductPackLevelMeasuredEvent:
+      allOf:
+        - $ref: "#/components/schemas/CloudEventEnvelope"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sku, level, gtin, dims, measured_at, version]
+              properties:
+                sku: { type: string }
+                level: { $ref: "#/components/schemas/PackLevel" }
+                gtin: { $ref: "#/components/schemas/Gtin" }
+                dims: { $ref: "#/components/schemas/PackDimensions" }
+                measured_at: { type: string, format: date-time }
+                device_id: { type: string, description: Omitted for a manual measurement. }
+                version: { type: integer, minimum: 1 }

@@ -11,7 +11,8 @@ weight). Hexagonal Go, Postgres, REST, Kafka (CloudEvents 1.0).
 - Physical profile rules: [ADR 0002](docs/adr/0002-physical-profile-declared-vs-measured.md)
 - Migration from inventory-storage (finished: stage E, 2026-10-17, removed the legacy importer): [ADR 0003](docs/adr/0003-migration-from-inventory-storage.md)
 - Event catalogue: [ADR 0004](docs/adr/0004-cloudevents-envelope-and-type-catalogue.md)
-- Read-only MCP server: [ADR 0005](docs/adr/0005-mcp-server-adoption.md)
+- MCP server (read-only except two pack level tools): [ADR 0005](docs/adr/0005-mcp-server-adoption.md), amended by [ADR 0011](docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md)
+- Packaging hierarchy with GS1 GTINs (pack levels, `GET /gtins/{gtin}`): [ADR 0011](docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md)
 - Analytics read side: [ADR 0006](docs/adr/0006-analytics-read-side.md)
 - Outbox relay attempt cap: [ADR 0007](docs/adr/0007-outbox-relay-attempt-cap.md);
   projector telemetry: [ADR 0008](docs/adr/0008-projector-telemetry-and-environment.md);
@@ -35,11 +36,11 @@ Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
 | [Runbook](docs/docs/operations/runbook.md) | Deployment, migrations, Kafka topics and groups, outbox relay, DLQ, scaling, procedures |
 | [Observability](docs/docs/operations/observability.md) | Metrics, traces, logs, health endpoints, suggested alerts |
 | [Troubleshooting](docs/docs/operations/troubleshooting.md) | Symptom, cause, check, fix |
-| [Testing](docs/docs/development/testing.md) | Test pyramid, the 15 testcontainers integration suites, `make` targets, CI jobs |
+| [Testing](docs/docs/development/testing.md) | Test pyramid, the 16 testcontainers integration suites, `make` targets, CI jobs |
 | [Integration: downstream](docs/docs/ecosystem/downstream-consumers.md), [upstream](docs/docs/ecosystem/upstream-contracts.md) | Every consumer and producer edge |
 | [Use cases](docs/docs/ddd/use-cases.md) | Triggers, inputs, invariants, events |
 | [Subdomain classification](docs/docs/ddd/subdomain-classification.md) | Supporting, `wms` tier, and the neighbours |
-| [MCP tools](docs/docs/mcp/tools.md) | The four read-only tools of `cmd/mcp` |
+| [MCP tools](docs/docs/mcp/tools.md) | The six read-only tools and the two pack level write tools of `cmd/mcp` |
 | [ADR index](docs/adr/index.md) | Every ADR with its status |
 | [DDD artifacts](docs/docs/ddd/ddd-artifacts.md) | The ddd-crew pack |
 
@@ -55,6 +56,11 @@ Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
 | PUT | `/products/{sku}/dimensions/declared` | DeclareDimensions |
 | PUT | `/products/{sku}/dimensions/measured` | RecordMeasurement |
 | GET | `/products/{sku}/physical-profile` | GetProduct (physical profile) |
+| GET | `/gtins/{gtin}` | ResolveGTIN (the SKU and pack level a GTIN identifies; retired ones too) |
+| GET | `/products/{sku}/pack-levels` | GetProduct (pack levels, retired ones included) |
+| PUT | `/products/{sku}/pack-levels/{level}` | DeclarePackLevel (`EACH`, `INNER`, `CASE`, `PALLET`) |
+| POST | `/products/{sku}/pack-levels/{level}:retire` | RetirePackLevel (idempotent) |
+| PUT | `/products/{sku}/pack-levels/{level}/measured` | RecordPackLevelMeasurement |
 
 `cmd/product-reports` (a separate binary, see below) serves
 `GET /reports/master-data-quality` and `GET /reports/freshness`.
@@ -98,23 +104,28 @@ DATABASE_URL=... KAFKA_BROKERS=... go run ./cmd/api   # :8080; both are mandator
 make check-fast           # quick gate
 make check-all            # full local gate
 make integration          # testcontainers Postgres + Kafka (Docker only; also the CI `integration` job)
-DATABASE_URL=... go run ./cmd/mcp   # :8090, read-only MCP server (Streamable HTTP) over the same database; DATABASE_URL is mandatory
+DATABASE_URL=... go run ./cmd/mcp   # :8090, MCP server (Streamable HTTP; read-only but for two pack level tools) over the same database; DATABASE_URL is mandatory
 go run ./cmd/product-projector  # :8091 admin; needs ANALYTICS_DATABASE_URL + KAFKA_BROKERS + ANALYTICS_CONSUMER_GROUP (ADR 0006)
 go run ./cmd/product-reports    # :8092, read-only reports; needs ANALYTICS_DATABASE_URL
 ```
 
 ## MCP server (ADR 0005)
 
-`cmd/mcp` exposes four read-only tools: `get_product`, `list_products`,
-`get_product_classification`, `get_physical_profile`. It never writes, never
-dials Kafka and never runs the outbox relay. A governance test fails the build
-on any write-verb tool name. Details: [ADR 0005](docs/adr/0005-mcp-server-adoption.md),
+`cmd/mcp` exposes six read-only tools (`get_product`, `list_products`,
+`get_product_classification`, `get_physical_profile`, `resolve_gtin`,
+`get_pack_levels`) and, since [ADR 0011](docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md),
+two write tools: `declare_pack_level` and `retire_pack_level`. The writes run
+the same use cases as REST, so they enqueue their events in the transactional
+outbox; the binary still never dials Kafka and never runs the relay (the relay
+in `cmd/api` publishes them). A governance test fails the build on any other
+write-verb tool name. Details: [ADR 0005](docs/adr/0005-mcp-server-adoption.md),
 `.claude/rules/mcp.md`.
 
 ## Analytics read side (ADR 0006)
 
-Every event also goes, in the same outbox transaction and under the same
-CloudEvents id, to `warehouse.product-master.analytics`. `cmd/product-projector`
+Every unit event (not the three pack level events of ADR 0011) also goes, in
+the same outbox transaction and under the same CloudEvents id, to
+`warehouse.product-master.analytics`. `cmd/product-projector`
 consumes it (fixed group `ANALYTICS_CONSUMER_GROUP`, poison to
 `warehouse.product-master.analytics.dlq`) into a separate analytical database
 (`analytics/migrations`, embedded), and `cmd/product-reports` serves

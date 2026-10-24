@@ -1,6 +1,8 @@
 package kafka
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 
 	"github.com/claudioed/product-master/internal/adapters/kafka/cloudevents"
@@ -48,6 +50,9 @@ func (e *AnalyticsEncoder) Encode(events ...product.Event) ([]outbox.Message, er
 }
 
 func (e *AnalyticsEncoder) encodeOne(ev product.Event, id string) (outbox.Message, error) {
+	if !onAnalytics(ev) {
+		return outbox.Message{}, fmt.Errorf("kafka analytics encoder: %s is not published on the analytics stream", ev.EventName())
+	}
 	data, err := payloadFor(ev)
 	if err != nil {
 		return outbox.Message{}, err
@@ -57,6 +62,17 @@ func (e *AnalyticsEncoder) encodeOne(ev product.Event, id string) (outbox.Messag
 		topic = AnalyticsTopic
 	}
 	return buildMessage(ev, id, topic, cloudevents.StreamAnalytics, data)
+}
+
+// onAnalytics reports whether ev belongs on the analytics stream: the five
+// unit events do, the pack level events (ADR 0011) are integration-only.
+func onAnalytics(ev product.Event) bool {
+	switch ev.(type) {
+	case product.ProductPackLevelDeclared, product.ProductPackLevelRetired, product.ProductPackLevelMeasured:
+		return false
+	default:
+		return true
+	}
 }
 
 // FanoutEncoder is the encoder the use cases get: every domain event becomes
@@ -101,6 +117,11 @@ func (f *FanoutEncoder) Encode(events ...product.Event) ([]outbox.Message, error
 		in, err := integration.encodeOne(ev, id)
 		if err != nil {
 			return nil, err
+		}
+		if !onAnalytics(ev) {
+			// integration-only (ADR 0011): the analytics projector knows five types
+			out = append(out, in)
+			continue
 		}
 		an, err := analytics.encodeOne(ev, id)
 		if err != nil {

@@ -3,6 +3,7 @@ package http
 import (
 	"time"
 
+	"github.com/claudioed/product-master/internal/application/usecases"
 	"github.com/claudioed/product-master/internal/domain/product"
 )
 
@@ -143,4 +144,105 @@ func toProductClassification(p *product.Product) (productClassificationResponse,
 		return productClassificationResponse{}, err
 	}
 	return productClassificationResponse{SKU: string(p.SKU()), classificationResponse: toClassification(c, source), Version: p.Version()}, nil
+}
+
+// The packaging hierarchy (ADR 0011).
+
+// packLevelRequest is the body of PUT /products/{sku}/pack-levels/{level}.
+// Pointers tell an absent field from an explicit zero.
+type packLevelRequest struct {
+	GTIN           string             `json:"gtin"`
+	ChildGTIN      string             `json:"childGtin"`
+	QtyOfChild     int                `json:"qtyOfChild"`
+	UnitsPerPack   int                `json:"unitsPerPack"`
+	Dims           *dimensionsRequest `json:"dims"`
+	IsOrderable    bool               `json:"isOrderable"`
+	IsDespatchUnit bool               `json:"isDespatchUnit"`
+}
+
+type retirePackLevelRequest struct {
+	Reason string `json:"reason"`
+}
+
+type packLevelResponse struct {
+	Level          string               `json:"level"`
+	GTIN           string               `json:"gtin"`
+	ChildGTIN      string               `json:"childGtin,omitempty"`
+	QtyOfChild     int                  `json:"qtyOfChild,omitempty"`
+	UnitsPerPack   int                  `json:"unitsPerPack"`
+	Dims           *dimensionsResponse  `json:"dims,omitempty"`
+	Measured       *measurementResponse `json:"measured,omitempty"`
+	IsOrderable    bool                 `json:"isOrderable"`
+	IsDespatchUnit bool                 `json:"isDespatchUnit"`
+	Active         bool                 `json:"active"`
+	EffectiveFrom  string               `json:"effectiveFrom"`
+	EffectiveTo    string               `json:"effectiveTo,omitempty"`
+}
+
+// packLevelResource is one level with the product it belongs to (write
+// responses).
+type packLevelResource struct {
+	SKU     string `json:"sku"`
+	Version int64  `json:"version"`
+	packLevelResponse
+}
+
+type packLevelListResponse struct {
+	SKU     string              `json:"sku"`
+	Version int64               `json:"version"`
+	Items   []packLevelResponse `json:"items"`
+}
+
+type gtinResponse struct {
+	GTIN          string `json:"gtin"`
+	SKU           string `json:"sku"`
+	Level         string `json:"level"`
+	UnitsPerPack  int    `json:"unitsPerPack"`
+	ChildGTIN     string `json:"childGtin,omitempty"`
+	Active        bool   `json:"active"`
+	EffectiveFrom string `json:"effectiveFrom"`
+	EffectiveTo   string `json:"effectiveTo,omitempty"`
+}
+
+func toPackLevel(d product.PackLevelDef) packLevelResponse {
+	out := packLevelResponse{
+		Level: string(d.Level()), GTIN: d.GTIN().String(), ChildGTIN: d.ChildGTIN().String(), QtyOfChild: d.QtyOfChild(),
+		UnitsPerPack: d.UnitsPerPack(), IsOrderable: d.IsOrderable(), IsDespatchUnit: d.IsDespatchUnit(), Active: d.Active(),
+		EffectiveFrom: d.EffectiveFrom().UTC().Format(time.RFC3339Nano),
+	}
+	if dims, ok := d.DeclaredDimensions(); ok {
+		out.Dims = toDimensions(dims)
+	}
+	if m, ok := d.Measurement(); ok {
+		out.Measured = &measurementResponse{
+			dimensionsResponse: *toDimensions(m.Dimensions()),
+			MeasuredAt:         m.MeasuredAt().UTC().Format(time.RFC3339Nano),
+			DeviceID:           m.DeviceID(),
+		}
+	}
+	if to, ended := d.EffectiveTo(); ended {
+		out.EffectiveTo = to.UTC().Format(time.RFC3339Nano)
+	}
+	return out
+}
+
+func toPackLevelResource(p *product.Product, d product.PackLevelDef) packLevelResource {
+	return packLevelResource{SKU: string(p.SKU()), Version: p.Version(), packLevelResponse: toPackLevel(d)}
+}
+
+func toPackLevelList(p *product.Product) packLevelListResponse {
+	levels := p.PackLevels().Levels()
+	out := packLevelListResponse{SKU: string(p.SKU()), Version: p.Version(), Items: make([]packLevelResponse, len(levels))}
+	for i, d := range levels {
+		out.Items[i] = toPackLevel(d)
+	}
+	return out
+}
+
+func toGTIN(res usecases.GTINResolution) gtinResponse {
+	pl := toPackLevel(res.Def)
+	return gtinResponse{
+		GTIN: pl.GTIN, SKU: string(res.SKU), Level: pl.Level, UnitsPerPack: pl.UnitsPerPack, ChildGTIN: pl.ChildGTIN,
+		Active: pl.Active, EffectiveFrom: pl.EffectiveFrom, EffectiveTo: pl.EffectiveTo,
+	}
 }

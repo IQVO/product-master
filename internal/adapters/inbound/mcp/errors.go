@@ -20,8 +20,22 @@ var errorCatalogue = []struct {
 }{
 	{usecases.ErrInvalidListQuery, "malformed-request"},
 	{product.ErrInvalidSKU, "invalid-sku"},
+	{product.ErrInvalidPackLevel, "invalid-pack-level"},
+	{product.ErrVariableMeasureUnsupported, "variable-measure-unsupported"},
+	{product.ErrInvalidGTIN, "invalid-gtin"},
+	{product.ErrInvalidPackQuantity, "invalid-pack-quantity"},
+	{product.ErrInvalidReason, "invalid-reason"},
+	{product.ErrInvalidDimension, "invalid-dimension"},
+	{product.ErrInvalidWeight, "invalid-weight"},
 	{repository.ErrProductNotFound, "product-not-found"},
+	{repository.ErrGtinNotFound, "gtin-not-found"},
+	{product.ErrPackLevelNotFound, "pack-level-not-found"},
 	{product.ErrNotClassified, "product-classification-not-found"},
+	{product.ErrGtinAlreadyAssigned, "gtin-already-assigned"},
+	{product.ErrPackQuantityImmutable, "pack-quantity-immutable"},
+	{product.ErrPackLevelOrder, "pack-level-order"},
+	{product.ErrPackDimensionsBelowContents, "pack-dimensions-below-contents"},
+	{repository.ErrConcurrentModification, "concurrent-modification"},
 }
 
 // slugFor returns the REST slug of err; ok is false for an untyped error.
