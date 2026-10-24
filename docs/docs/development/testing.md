@@ -21,7 +21,7 @@ and the `.feature` files) and `internal/architecture/`.
 | Architecture fitness | Hexagonal layering and fleet rules, as Go tests | `internal/architecture/` | `make arch-test` | nothing |
 | Mutation | gremlins on the domain | `.gremlins.yaml` | `make mutation`, `make mutation-full` | `gremlins` v0.6.0 |
 | Contract | Spectral lint of both specs; the event catalogue fitness test; MCP tool registry golden file | `apis/`, `internal/architecture/catalogue_fitness_test.go`, `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json` | CI `api-lint`; `make test` | Spectral for the lint |
-| Frontend | vitest and Testing Library for the `productmaster_mfe` remote | 7 test files under `web/src` | `cd web && npm test` | Node 22 and a built sibling `warehouse-ui-kit` |
+| Frontend | vitest and Testing Library for the `productmaster_mfe` remote | 8 test files under `web/src` (incl. the Packaging screen: hierarchy, declare, retire, GTIN lookup) | `cd web && npm test` | Node 22 and a built sibling `warehouse-ui-kit` |
 | Chart | Each Service selects exactly one Deployment | `charts/product-master/tests/test_service_selectors.py` | `python3 charts/product-master/tests/test_service_selectors.py` | Helm, PyYAML |
 | Chart render | The api Deployment mounts the chart ConfigMap via `envFrom` (gap fix D14); `OUTBOX_MAX_ATTEMPTS` defaults to 20 and renders `0` ([ADR 0007](/docs/adr/0007-outbox-relay-attempt-cap)); mcp, projector and reports do not mount the ConfigMap; every backend Deployment sets `ENVIRONMENT`, `SERVICE_VERSION` and the OTLP endpoint ([ADR 0008](/docs/adr/0008-projector-telemetry-and-environment)) | `charts/product-master/tests/render_test.sh` | `bash charts/product-master/tests/render_test.sh` | Helm |
 
