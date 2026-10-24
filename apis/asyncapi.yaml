@@ -170,6 +170,7 @@ components:
               version: 1
 
     ProductDescriptionChanged:
+      x-no-consumer-reason: "Published Language fact (product description); consumed on demand"
       name: ProductDescriptionChanged
       title: Product description changed
       summary: A registered product's description changed.
@@ -378,6 +379,7 @@ components:
               version: 4
 
     ProductPackLevelMeasured:
+      x-no-consumer-reason: "pending: measurement fact (ADR 0002/0011); no consumer declared in any fleet spec yet"
       name: ProductPackLevelMeasured
       title: Product pack level measured
       summary: A measurement of one pack of an active level was recorded.
