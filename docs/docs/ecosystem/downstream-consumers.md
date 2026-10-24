@@ -71,7 +71,7 @@ Service customers. Both are built and deployed in the kind cluster:
 | Customer | Surface it uses | Evidence |
 | --- | --- | --- |
 | `warehouse-ops-agent` | The MCP server (`cmd/mcp`, ADR 0005; read-only but for two pack level tools, ADR 0011) at `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, configured as `PRODUCT_MASTER_MCP_ENDPOINT`. Its client pins the four tools' schemas; its `find_master_data_gaps` MCP tool and `GET /master-data-gaps` page through `list_products` to report unclassified products and dimension discrepancies. | warehouse-ops-agent ADR 0020, `internal/adapters/outbound/mcpclient/product_master.go` |
-| `warehouse-console` | Hosts this context's own remote, `productmaster_mfe` (`web/`), served at `/mfes/product-master/` and mounted on `/product-master/*` behind the Product Master tile. The remote calls the REST API through Kong at `/api/product-master`. | warehouse-console #66 (`src/App.tsx`, `vite.config.ts`), `web/src/config.ts` |
+| `warehouse-console` | Hosts this context's own remote, `productmaster_mfe` (`web/`), served at `/mfes/product-master/` and mounted on `/product-master/*` behind the Product Master tile. Its Packaging screen (`/product-master/products/{sku}/packaging`) reads and writes pack levels (`GET`/`PUT` pack-levels, `POST ...:retire`, `GET /gtins/{gtin}`). The remote calls the REST API through Kong at `/api/product-master`. | warehouse-console #66 (`src/App.tsx`, `vite.config.ts`), `web/src/config.ts` |
 
 Neither is a domain context and neither keeps a copy: both read at request
 time, which ADR 0001 allows for operators, the console and agents.

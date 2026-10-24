@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import App from "./App";
 import { json, mockApi } from "./test/fetchMock";
-import { product } from "./test/fixtures";
+import { GTIN_CASE, packLevels, product } from "./test/fixtures";
 
 function mount(path: string) {
   return render(
@@ -39,6 +39,8 @@ function routes() {
   return mockApi({
     "GET /products": json({ items: [product()] }),
     "GET /products/SKU-1": json(product()),
+    "GET /products/SKU-1/pack-levels": json(packLevels()),
+    "GET /gtins/24006381333935": json(GTIN_CASE),
   });
 }
 
@@ -101,6 +103,30 @@ describe("App (the exposed ./App)", () => {
 
       await user.click(back);
       expect(await screen.findByRole("heading", { name: "Products" })).toBeInTheDocument();
+    });
+
+    it("opens a product's packaging under the prefix, links back, and follows a GTIN lookup to its SKU", async () => {
+      routes();
+      const user = userEvent.setup();
+      mountUnderHost("/product-master/products/SKU-1");
+      const open = await screen.findByRole("link", { name: /Pack levels, GTINs and eaches per pack/ });
+      expect(open).toHaveAttribute("href", "/product-master/products/SKU-1/packaging");
+
+      await user.click(open);
+      expect(await screen.findByRole("heading", { name: "Packaging · SKU-1" })).toBeInTheDocument();
+      expect(await screen.findByText("Case of 12 eaches")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "← Product SKU-1" })).toHaveAttribute(
+        "href",
+        "/product-master/products/SKU-1",
+      );
+
+      await user.type(screen.getByLabelText("GTIN to look up"), "24006381333935");
+      await user.click(screen.getByRole("button", { name: "Look up" }));
+      const lookup = within(screen.getByRole("form", { name: "Look up GTIN" }));
+      expect(await lookup.findByRole("link", { name: "SKU-1" })).toHaveAttribute(
+        "href",
+        "/product-master/products/SKU-1/packaging",
+      );
     });
 
     it("navigates between all sections in any order, hop after hop", async () => {

@@ -1,8 +1,13 @@
 import { PRODUCT_MASTER_API_BASE } from "./config";
 import type {
   ClassifyProductInput,
+  GtinResolution,
   ListProductsQuery,
   MeasurementInput,
+  PackLevel,
+  PackLevelInput,
+  PackLevelList,
+  PackLevelResource,
   PhysicalProfile,
   Product,
   ProductClassification,
@@ -72,7 +77,7 @@ export interface ApiResult<T> {
   data: T;
 }
 
-async function request<T>(method: "GET" | "PUT", path: string, body?: unknown): Promise<ApiResult<T>> {
+async function request<T>(method: "GET" | "PUT" | "POST", path: string, body?: unknown): Promise<ApiResult<T>> {
   let res: Response;
   try {
     res = await fetch(`${PRODUCT_MASTER_API_BASE}${path}`, {
@@ -138,4 +143,35 @@ export async function declareDimensions(sku: string, input: UnitDimensionsInput)
 /** PUT /products/{sku}/dimensions/measured -> the whole physical profile (409 stale-measurement). */
 export async function recordMeasurement(sku: string, input: MeasurementInput): Promise<PhysicalProfile> {
   return (await request<PhysicalProfile>("PUT", `/products/${seg(sku)}/dimensions/measured`, input)).data;
+}
+
+/** GET /products/{sku}/pack-levels -> every level ever declared, retired ones included. */
+export async function listPackLevels(sku: string): Promise<PackLevelList> {
+  const data = (await request<PackLevelList>("GET", `/products/${seg(sku)}/pack-levels`)).data;
+  return { ...data, items: data.items ?? [] };
+}
+
+/** PUT /products/{sku}/pack-levels/{level}: 201 declared, 200 identical / changed in place / superseded. */
+export function declarePackLevel(
+  sku: string,
+  level: PackLevel,
+  input: PackLevelInput,
+): Promise<ApiResult<PackLevelResource>> {
+  return request<PackLevelResource>("PUT", `/products/${seg(sku)}/pack-levels/${seg(level)}`, input);
+}
+
+/** POST /products/{sku}/pack-levels/{level}:retire -> the retired level (200, also when already retired). */
+export async function retirePackLevel(sku: string, level: PackLevel, reason?: string): Promise<PackLevelResource> {
+  return (
+    await request<PackLevelResource>(
+      "POST",
+      `/products/${seg(sku)}/pack-levels/${seg(level)}:retire`,
+      reason ? { reason } : undefined,
+    )
+  ).data;
+}
+
+/** GET /gtins/{gtin}: which SKU and pack level a GTIN identifies (a retired GTIN still resolves). */
+export async function resolveGtin(gtin: string): Promise<GtinResolution> {
+  return (await request<GtinResolution>("GET", `/gtins/${seg(gtin)}`)).data;
 }

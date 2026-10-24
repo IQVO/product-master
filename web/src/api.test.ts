@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, classifyProduct, getProduct, listProducts, recordMeasurement, registerProduct, toApiError } from "./api";
+import { ApiError, classifyProduct, declarePackLevel, getProduct, listPackLevels, listProducts, resolveGtin, retirePackLevel, recordMeasurement, registerProduct, toApiError } from "./api";
 import { json, mockApi, problem } from "./test/fetchMock";
-import { BARE, MEASURED_PROFILE, product } from "./test/fixtures";
+import { BARE, CASE_LEVEL, GTIN_CASE, MEASURED_PROFILE, packLevels, product } from "./test/fixtures";
 
 describe("listProducts", () => {
   it("sends only the filters that are set, with the API's parameter names", async () => {
@@ -106,5 +106,41 @@ describe("errors", () => {
     const original = new ApiError(400, { title: "t", detail: "d" }, "x");
     expect(toApiError(original)).toBe(original);
     expect(toApiError("plain").detail).toBe("plain");
+  });
+});
+
+describe("pack levels", () => {
+  it("lists a product's levels, treating a missing items array as empty", async () => {
+    mockApi({ "GET /products/SKU-1/pack-levels": json(packLevels()), "GET /products/SKU-2/pack-levels": json({ sku: "SKU-2", version: 1 }) });
+    expect((await listPackLevels("SKU-1")).items).toHaveLength(3);
+    expect((await listPackLevels("SKU-2")).items).toEqual([]);
+  });
+
+  it("declares with PUT, the level in the path and the JSON body, keeping the 201/200 status", async () => {
+    const api = mockApi({ "PUT /products/SKU-1/pack-levels/CASE": json({ sku: "SKU-1", version: 3, ...CASE_LEVEL }, 201) });
+    const res = await declarePackLevel("SKU-1", "CASE", { gtin: "24006381333935", childGtin: "4006381333931", qtyOfChild: 12 });
+    expect(res.status).toBe(201);
+    expect(res.data.unitsPerPack).toBe(12);
+    const [call] = api.to("PUT /products/SKU-1/pack-levels/CASE");
+    expect(call.headers).toEqual({ "Content-Type": "application/json" });
+    expect(call.body).toEqual({ gtin: "24006381333935", childGtin: "4006381333931", qtyOfChild: 12 });
+  });
+
+  it("retires with POST to the :retire action; reason is optional", async () => {
+    const api = mockApi({ "POST /products/SKU-1/pack-levels/CASE:retire": json({ sku: "SKU-1", version: 4, ...CASE_LEVEL, active: false }) });
+    await retirePackLevel("SKU-1", "CASE");
+    await retirePackLevel("SKU-1", "CASE", "discontinued");
+    const calls = api.to("POST /products/SKU-1/pack-levels/CASE:retire");
+    expect(calls[0].body).toBeUndefined();
+    expect(calls[1].body).toEqual({ reason: "discontinued" });
+  });
+
+  it("resolves a GTIN, and a failure carries the problem code", async () => {
+    mockApi({
+      "GET /gtins/24006381333935": json(GTIN_CASE),
+      "GET /gtins/5901234123457": problem(404, "gtin-not-found", "GTIN not found", "GTIN not found"),
+    });
+    expect((await resolveGtin("24006381333935")).level).toBe("CASE");
+    await expect(resolveGtin("5901234123457")).rejects.toMatchObject({ status: 404, slug: "gtin-not-found" });
   });
 });
