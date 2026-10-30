@@ -117,6 +117,36 @@ const sidebars: SidebarsConfig = {
           label: '0006 Analytics read side',
           href: '/docs/adr/0006-analytics-read-side',
         },
+        {
+          type: 'link',
+          label: '0007 Outbox relay attempt cap',
+          href: '/docs/adr/0007-outbox-relay-attempt-cap',
+        },
+        {
+          type: 'link',
+          label: '0008 Projector telemetry and environment',
+          href: '/docs/adr/0008-projector-telemetry-and-environment',
+        },
+        {
+          type: 'link',
+          label: '0009 Trace context crosses the outbox',
+          href: '/docs/adr/0009-trace-context-crosses-the-outbox',
+        },
+        {
+          type: 'link',
+          label: '0010 Postgres and Kafka are the only runtime',
+          href: '/docs/adr/0010-postgres-and-kafka-are-the-only-runtime',
+        },
+        {
+          type: 'link',
+          label: '0011 Packaging hierarchy with GS1 GTIN',
+          href: '/docs/adr/0011-packaging-hierarchy-with-gs1-gtin',
+        },
+        {
+          type: 'link',
+          label: '0012 A2A inbound adapter',
+          href: '/docs/adr/0012-a2a-inbound-adapter',
+        },
       ],
     },
   ],
