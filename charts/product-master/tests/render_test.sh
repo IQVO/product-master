@@ -105,8 +105,8 @@ grep -q 'OUTBOX_MAX_ATTEMPTS: "0"' <<<"$unlimited" || fail "config.outboxMaxAtte
 
 # The other workloads read their own explicit env and must NOT inherit the
 # api's ConfigMap (reports and projector would bind the api's HTTP_ADDR).
-for template in reports-deployment.yaml projector-deployment.yaml mcp-deployment.yaml; do
-  if render_only "$template" "${base[@]}" "${analytics[@]}" --set mcp.enabled=true | grep -q 'configMapRef:'; then
+for template in reports-deployment.yaml projector-deployment.yaml mcp-deployment.yaml a2a-deployment.yaml; do
+  if render_only "$template" "${base[@]}" "${analytics[@]}" --set mcp.enabled=true --set a2a.enabled=true | grep -q 'configMapRef:'; then
     fail "$template must not mount the api ConfigMap"
   fi
 done
@@ -114,8 +114,8 @@ done
 # D21 / ADR 0008: every backend Deployment that sets up telemetry gets
 # ENVIRONMENT (deployment.environment.name) and SERVICE_VERSION, and the OTLP
 # endpoint with otel.enabled; the projector now calls telemetry.Setup too.
-for template in deployment.yaml mcp-deployment.yaml projector-deployment.yaml reports-deployment.yaml; do
-  rendered="$(render_only "$template" "${base[@]}" "${analytics[@]}" --set mcp.enabled=true --set environment=staging)"
+for template in deployment.yaml mcp-deployment.yaml a2a-deployment.yaml projector-deployment.yaml reports-deployment.yaml; do
+  rendered="$(render_only "$template" "${base[@]}" "${analytics[@]}" --set mcp.enabled=true --set a2a.enabled=true --set environment=staging)"
   grep -A1 'name: ENVIRONMENT' <<<"$rendered" | grep -q 'value: "staging"' || fail "$template does not set ENVIRONMENT from .Values.environment"
   grep -q 'name: SERVICE_VERSION' <<<"$rendered" || fail "$template does not set SERVICE_VERSION"
   grep -q 'name: OTEL_EXPORTER_OTLP_ENDPOINT' <<<"$rendered" || fail "$template does not set OTEL_EXPORTER_OTLP_ENDPOINT with otel.enabled"
@@ -144,7 +144,7 @@ expect_refusal "analytics without a consumer group" "analytics.projector.consume
 # --- chart vs binary ---------------------------------------------------------------
 # A binary's env literals (os.Getenv / getenv("...")) -- for cmd/<dir> -- must all be
 # rendered by its Deployment, so a new variable fails until the chart carries it.
-# MIGRATIONS_DATABASE_URL is read by cmd/api and cmd/mcp through getenv(...) too.
+# MIGRATIONS_DATABASE_URL is read by cmd/api, cmd/mcp and cmd/a2a through getenv(...) too.
 cmd_env() { # cmd_env <dir>...
   local d f
   for d in "$@"; do
@@ -173,6 +173,7 @@ while read -r key; do
   [[ "$known" == *" $key "* ]] || fail "ConfigMap key $key is read by no binary"
 done < <(awk '/^data:/ {d=1; next} d && /^  [A-Z]/ {sub(/:.*/, ""); sub(/^  /, ""); print}' <<<"$full_configmap")
 assert_renders_env "mcp" "$(render_only mcp-deployment.yaml "${everything[@]}")" mcp
+assert_renders_env "a2a" "$(render_only a2a-deployment.yaml "${everything[@]}")" a2a
 assert_renders_env "projector" "$(render_only projector-deployment.yaml "${everything[@]}")" product-projector
 assert_renders_env "reports" "$(render_only reports-deployment.yaml "${everything[@]}")" product-reports
 
@@ -188,5 +189,36 @@ grep -A4 'name: DATABASE_URL$' <<<"$mcp_dep" | grep -q 'secretKeyRef:' || fail "
 if grep -Eq 'name: (KAFKA_BROKERS|EVENT_PUBLISHER|OUTBOX_[A-Z_]+|[A-Z]+_CONSUMER_GROUP)$' <<<"$mcp_dep"; then
   fail "the mcp Deployment must not get Kafka/relay/consumer env (read-only, never dials Kafka)"
 fi
+
+# --- A2A agent (ADR 0012) ---------------------------------------------------------
+a2a_dep="$(render_only a2a-deployment.yaml "${base[@]}" --set a2a.enabled=true)"
+grep -A4 'name: DATABASE_URL$' <<<"$a2a_dep" | grep -q 'secretKeyRef:' || fail "the a2a DATABASE_URL must come from a Secret"
+if grep -Eq 'name: (KAFKA_BROKERS|EVENT_PUBLISHER|OUTBOX_[A-Z_]+|[A-Z]+_CONSUMER_GROUP)$' <<<"$a2a_dep"; then
+  fail "the a2a Deployment must not get Kafka/relay/consumer env (it only enqueues outbox rows, never dials Kafka)"
+fi
+[[ "$(env_value "$a2a_dep" A2A_ADDR)" == ":8093" ]] || fail "the a2a agent must listen on :8093 (8080 api, 8090 mcp, 8091 projector admin, 8092 reports)"
+grep -q 'command: \["/app/a2a"\]' <<<"$a2a_dep" || fail "the a2a Deployment must run /app/a2a"
+# Every variable cmd/a2a's boot config names as REQUIRED is rendered, derived
+# from the Go source so a new mandatory variable fails until the chart has it.
+a2a_vars="$(grep -ho '[A-Z][A-Z0-9_]\{2,\} is required' "$repo_dir"/cmd/a2a/main.go | sed -E 's/ is required//' | sort -u || true)"
+[[ -n "$a2a_vars" ]] || fail "found no mandatory variables for cmd/a2a; the scan is looking in the wrong place"
+[[ "$a2a_vars" == *A2A_AGENT_URL* ]] || fail "the scan did not find A2A_AGENT_URL ($a2a_vars): its regex must allow digits"
+for var in $a2a_vars; do
+  grep -q "name: $var\$" <<<"$a2a_dep" || fail "the a2a Deployment does not render $var, which cmd/a2a requires"
+done
+# The Agent Card must advertise a dialable absolute URL: it defaults to the
+# release's in-cluster Service DNS (namespace-derived, so pattern-match) and
+# stays overridable.
+a2a_url="$(env_value "$a2a_dep" A2A_AGENT_URL || true)" # a missing var must reach the fail message below, not abort under set -e
+[[ "$a2a_url" =~ ^http://[a-z0-9.-]+-a2a\.[a-z0-9-]+\.svc\.cluster\.local:8093/$ ]] || fail "A2A_AGENT_URL default is not the in-cluster Service DNS: $a2a_url"
+a2a_override="$(render_only a2a-deployment.yaml "${base[@]}" --set a2a.enabled=true --set a2a.agentUrl=http://gw.example/api/a2a/product-master/)"
+[[ "$(env_value "$a2a_override" A2A_AGENT_URL || true)" == "http://gw.example/api/a2a/product-master/" ]] || fail "a2a.agentUrl does not override A2A_AGENT_URL"
+# A2A is off by default: no a2a resource renders unless asked for.
+if render "${base[@]}" | grep -q -- '-a2a'; then fail "an a2a resource rendered with default values"; fi
+# The route rewrites /api/a2a/<context> to / so the well-known card stays reachable under the prefix.
+a2a_route="$(render_only a2a-route.yaml "${base[@]}" --set a2a.enabled=true --set a2a.route.enabled=true --set 'a2a.route.parentRefs[0].name=gw' --set 'a2a.route.parentRefs[0].namespace=kong')"
+grep -q 'replacePrefixMatch: /$' <<<"$a2a_route" || fail "the a2a route must rewrite its prefix to /"
+grep -q 'value: /api/a2a/product-master$' <<<"$a2a_route" || fail "the a2a route must match /api/a2a/product-master"
+expect_refusal "a2a without a database source" "database.url or database.existingSecret" --set kafka.brokers=k:9092 --set a2a.enabled=true
 
 echo "PASS: product-master chart render assertions"

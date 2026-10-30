@@ -13,6 +13,7 @@ weight). Hexagonal Go, Postgres, REST, Kafka (CloudEvents 1.0).
 - Event catalogue: [ADR 0004](docs/adr/0004-cloudevents-envelope-and-type-catalogue.md)
 - MCP server (read-only except two pack level tools): [ADR 0005](docs/adr/0005-mcp-server-adoption.md), amended by [ADR 0011](docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md)
 - Packaging hierarchy with GS1 GTINs (pack levels, `GET /gtins/{gtin}`): [ADR 0011](docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md)
+- A2A agent (`product_profile`, `declare_pack_level`; delegation only): [ADR 0012](docs/adr/0012-a2a-inbound-adapter.md)
 - Analytics read side: [ADR 0006](docs/adr/0006-analytics-read-side.md)
 - Outbox relay attempt cap: [ADR 0007](docs/adr/0007-outbox-relay-attempt-cap.md);
   projector telemetry: [ADR 0008](docs/adr/0008-projector-telemetry-and-environment.md);
@@ -41,6 +42,7 @@ Published site: <https://iqvo.github.io/product-master/> (sources in `docs/`).
 | [Use cases](docs/docs/ddd/use-cases.md) | Triggers, inputs, invariants, events |
 | [Subdomain classification](docs/docs/ddd/subdomain-classification.md) | Supporting, `wms` tier, and the neighbours |
 | [MCP tools](docs/docs/mcp/tools.md) | The six read-only tools and the two pack level write tools of `cmd/mcp` |
+| [A2A agent](docs/adr/0012-a2a-inbound-adapter.md) | The two skills of `cmd/a2a`, their contract, error classification and boundaries |
 | [ADR index](docs/adr/index.md) | Every ADR with its status |
 | [DDD artifacts](docs/docs/ddd/ddd-artifacts.md) | The ddd-crew pack |
 
@@ -76,6 +78,7 @@ image:
 | REST API (`cmd/api`) | `http://localhost:8000/api/product-master/*` through Kong (strips the prefix) | runs on real Postgres and Kafka only (ADR 0010); `/readyz` checks both |
 | Console remote (`web/`, `productmaster_mfe`) | `http://localhost/mfes/product-master/` (web gateway); the console shell mounts it at `/product-master/*` (warehouse-console #66) | calls the REST API above. Screens: product list, register, product detail, and **Packaging** at `/product-master/products/{sku}/packaging` (pack-level hierarchy EACH → INNER → CASE → PALLET with GTIN, eaches per pack, dimensions and active/retired state; declare and retire a level; GTIN lookup via `GET /gtins/{gtin}`). Quantities are always eaches, a case reads "Case of N eaches". Retire is a `POST` (the remote's first non-`PUT` write); the chart's Kong CORS plugin already allows `POST` |
 | MCP server (`cmd/mcp`) | in-cluster `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`; through Kong at `http://localhost:8000/api/mcp/product-master` (chart `mcp-route.yaml`) | read by `warehouse-ops-agent` in-cluster (its ADR 0020, `PRODUCT_MASTER_MCP_ENDPOINT`) |
+| A2A agent (`cmd/a2a`) | in-cluster `http://product-master-a2a.warehouse-systems.svc.cluster.local:8093/` (Agent Card at `/.well-known/agent-card.json`); through Kong at `http://localhost:8000/api/a2a/product-master` (chart `a2a-route.yaml`, rewritten to `/`) | off by default (`a2a.enabled`); delegation only (ADR 0012) |
 | Analytics projector (`cmd/product-projector`) | in-cluster only | group `product-master-analytics`, database `product_master_analytics` |
 | Reports (`cmd/product-reports`) | `http://localhost:8000/api/product-master/reports/*` through Kong (chart `reports-route.yaml`, rewritten to `/reports`); in-cluster Service `product-master-reports` (port 80 to 8092) | see the note below |
 
@@ -105,6 +108,7 @@ make check-fast           # quick gate
 make check-all            # full local gate
 make integration          # testcontainers Postgres + Kafka (Docker only; also the CI `integration` job)
 DATABASE_URL=... go run ./cmd/mcp   # :8090, MCP server (Streamable HTTP; read-only but for two pack level tools) over the same database; DATABASE_URL is mandatory
+DATABASE_URL=... A2A_AGENT_URL=http://localhost:8093/ go run ./cmd/a2a   # :8093, A2A agent (JSON-RPC) over the same database; both variables are mandatory
 go run ./cmd/product-projector  # :8091 admin; needs ANALYTICS_DATABASE_URL + KAFKA_BROKERS + ANALYTICS_CONSUMER_GROUP (ADR 0006)
 go run ./cmd/product-reports    # :8092, read-only reports; needs ANALYTICS_DATABASE_URL
 ```
@@ -121,6 +125,29 @@ in `cmd/api` publishes them). A governance test fails the build on any other
 write-verb tool name. Details: [ADR 0005](docs/adr/0005-mcp-server-adoption.md),
 `.claude/rules/mcp.md`.
 
+## A2A agent (ADR 0012)
+
+`cmd/a2a` is the third driving adapter over the same use cases as REST and
+MCP: an Agent2Agent agent (JSON-RPC 2.0 over HTTP, message-only) with two
+curated skills derived from the MCP surface. `product_profile` (read) answers
+"what is this item and how do I handle it" for one `sku` or one scanned
+`gtin`: classification, physical profile and the packaging hierarchy.
+`declare_pack_level` (write, idempotent) declares one packaging level with its
+GTIN, the same use case as REST and MCP, so the product row and its
+`ProductPackLevelDeclared` event commit in one transaction through the
+transactional outbox; the binary never runs the relay and never dials Kafka
+(the relay in `cmd/api` publishes). The agent does not widen the context:
+`retire_pack_level`, registration, classification and measurements stay off
+A2A. A2A carries delegation only, never data sync: facts still leave as
+CloudEvents, and downstream contexts keep local copies. Requests are
+`{"skill":"product_profile","arguments":{"sku":"SKU-1"}}` as a data part (or a
+text part holding the same JSON); unknown arguments are refused; domain
+rejections come back in-band as RFC 7807-style problems with REST's status
+classification. No auth (fleet-wide). The Agent Card is at
+`/.well-known/agent-card.json`, the endpoint at `/` and `/a2a` (`:8093`,
+`A2A_ADDR`); `A2A_AGENT_URL`, the absolute URL the card advertises, is
+mandatory. Details: [ADR 0012](docs/adr/0012-a2a-inbound-adapter.md).
+
 ## Analytics read side (ADR 0006)
 
 Every unit event (not the three pack level events of ADR 0011) also goes, in
@@ -136,12 +163,12 @@ and `GET /reports/freshness` read-only. Details:
 
 ## Packaging
 
-- `Dockerfile` builds every `cmd/*` binary into one image (`api`, `mcp`,
+- `Dockerfile` builds every `cmd/*` binary into one image (`api`, `mcp`, `a2a`,
   `product-projector`, `product-reports`).
 - `web/`: the `productmaster_mfe` Module Federation remote (Vite base
   `/mfes/product-master/`, dev port 5191), packaged by `web/Dockerfile` (nginx).
 - `charts/product-master`: the `api` Deployment and Service, plus an `mcp`
-  component, the `analytics-projector` / `analytics-reports` components
+  and an `a2a` component (`<release>-a2a`, port 8093), the `analytics-projector` / `analytics-reports` components
   (`analytics.enabled`) and an optional `frontend` component, all off by
   default. Each Service selects exactly one
   Deployment (`charts/product-master/tests/test_service_selectors.py`).

@@ -257,6 +257,54 @@ mcp:
       cpu: 100m
       memory: 128Mi
 
+# --- A2A agent (docs/adr/0012) ---
+# The Agent2Agent agent (cmd/a2a, JSON-RPC over HTTP): the third driving
+# adapter over the SAME use cases as REST and MCP. Skills: product_profile
+# (read) and declare_pack_level (write, offered because the MCP surface
+# already offers it, ADR 0011). DISABLED by default. Enabling it renders its
+# own Deployment + Service (component=a2a) over the same OLTP database, served
+# at "/" and "/a2a" (Agent Card at /.well-known/agent-card.json) with GET
+# /healthz probes, command /app/a2a. Env names in templates/a2a-deployment.yaml
+# match cmd/a2a/main.go. It starts no outbox relay and dials no Kafka (the
+# write skill enqueues into the outbox that cmd/api's relay drains; the
+# DATABASE_URL role must be able to write). A2A carries delegation only: facts
+# between contexts still leave as CloudEvents through that outbox. No auth:
+# A2A endpoints are unauthenticated fleet-wide.
+a2a:
+  enabled: false
+  replicaCount: 1
+  # A2A_ADDR the binary listens on; keep in sync with service.targetPort.
+  # (8080 api, 8090 mcp, 8091 projector admin, 8092 reports API, so 8093.)
+  httpAddr: ":8093"
+  # Absolute URL advertised on the Agent Card (A2A_AGENT_URL, mandatory in the
+  # binary). Empty defaults to this release's in-cluster Service DNS
+  # (http://<release>-a2a.<ns>.svc.cluster.local:8093/); warehouse-infra can
+  # override it with the Kong path when the agent must be reachable off-cluster.
+  agentUrl: ""
+  service:
+    type: ClusterIP
+    port: 8093
+    targetPort: 8093
+  # Kong exposure of the A2A agent (a2a-route.yaml): host path
+  # /api/a2a/<context> rewritten to / (JSON-RPC root; the well-known agent
+  # card stays reachable under the same prefix). Off by default;
+  # warehouse-infra turns it on with the real parentRefs and path.
+  route:
+    enabled: false
+    path: "/api/a2a/product-master"
+    parentRefs:
+      - name: ""
+        namespace: ""
+        sectionName: "http"
+  extraEnv: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
 # --- Analytics read side (docs/adr/0006) ---
 # The master data quality data product: cmd/product-projector consumes
 # warehouse.product-master.analytics (written by the SAME outbox as the
