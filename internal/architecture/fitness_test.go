@@ -78,6 +78,70 @@ func TestMCPAdapterDependencyRule(t *testing.T) {
 	})
 }
 
+// TestA2AAdapterDependencyRule encodes ADR 0012: the A2A inbound adapter is,
+// like MCP, additive and never load-bearing for the OLTP composition root. It
+// may depend only on the application and domain layers (never on outbound
+// adapters, a sibling inbound adapter or cmd), and nothing else in this
+// internal package may depend on it: cmd/a2a is the only wiring point. It also pins
+// the "no outbound calls to sibling contexts" rule from the adapter's side:
+// the package may not import the SDK's client package.
+func TestA2AAdapterDependencyRule(t *testing.T) {
+	moduleInfo := configuration.Load(modulePath)
+
+	t.Run("a2a adapter depends only on application and domain", func(t *testing.T) {
+		result := archgo.CheckArchitecture(moduleInfo, configuration.Config{
+			DependenciesRules: []*configuration.DependenciesRule{
+				{
+					Package: "**.internal.adapters.inbound.a2a.**",
+					ShouldOnlyDependsOn: &configuration.Dependencies{
+						Internal: []string{
+							"**.internal.adapters.inbound.a2a.**",
+							"**.internal.application.**",
+							"**.internal.domain.**",
+						},
+					},
+				},
+			},
+		})
+
+		assertArchGoPasses(t, result)
+	})
+
+	t.Run("nothing else depends on the a2a adapter", func(t *testing.T) {
+		result := archgo.CheckArchitecture(moduleInfo, configuration.Config{
+			DependenciesRules: []*configuration.DependenciesRule{
+				{
+					Package: "**.internal.**",
+					ShouldNotDependsOn: &configuration.Dependencies{
+						Internal: []string{"**.internal.adapters.inbound.a2a.**"},
+					},
+				},
+			},
+		})
+
+		assertArchGoPasses(t, result)
+	})
+}
+
+// TestNoOutboundA2AClient pins ADR 0001 / AGENTS.md rule 5 for the A2A SDK:
+// this context calls no sibling context, so no production source may import
+// the A2A client package. Only the inbound adapter and cmd/a2a use the SDK, and
+// only its server side.
+func TestNoOutboundA2AClient(t *testing.T) {
+	const clientImport = `"github.com/a2aproject/a2a-go/v2/a2aclient"`
+	for _, root := range []string{"../../internal", "../../cmd"} {
+		for _, path := range goFilesUnder(t, root, false) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", path, err)
+			}
+			if strings.Contains(string(raw), clientImport) {
+				t.Errorf("%s imports the A2A client: product-master makes no outbound calls to sibling contexts (ADR 0001); the A2A surface is an inbound server only", path)
+			}
+		}
+	}
+}
+
 // assertArchGoPasses is a shared helper for the two-return-shape arch-go
 // result (DependenciesRuleResult here; the file's other tests use their own
 // assertPass with the same semantics — kept separate to avoid touching
