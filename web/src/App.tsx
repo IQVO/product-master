@@ -1,5 +1,6 @@
 import { NavLink, Outlet, Route, Routes } from "react-router-dom";
 import { ProductDetailRoute } from "./screens/ProductDetailScreen";
+import { PackagingRoute } from "./screens/PackagingScreen";
 import { ProductListScreen } from "./screens/ProductListScreen";
 import { RegisterProductScreen } from "./screens/RegisterProductScreen";
 
@@ -55,6 +56,8 @@ function ProductMasterLayout() {
  *   - Products (index): list with handling-tag / classified filters and paging.
  *   - products/:sku: classification, physical profile, version, and the
  *     classify / declare-dimensions / record-measurement forms.
+ *   - products/:sku/packaging: pack-level hierarchy (EACH, INNER, CASE, PALLET),
+ *     declare / retire a level, GTIN lookup.
  *   - register: register a SKU or change its description. */
 export default function App() {
   return (
@@ -63,6 +66,7 @@ export default function App() {
         <Route index element={<ProductListScreen />} />
         <Route path="register" element={<RegisterProductScreen />} />
         <Route path="products/:sku" element={<ProductDetailRoute />} />
+        <Route path="products/:sku/packaging" element={<PackagingRoute />} />
       </Route>
     </Routes>
   );

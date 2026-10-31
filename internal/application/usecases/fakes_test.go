@@ -11,6 +11,7 @@ import (
 	"github.com/claudioed/product-master/internal/application/repository"
 	"github.com/claudioed/product-master/internal/application/usecases"
 	"github.com/claudioed/product-master/internal/domain/product"
+	"github.com/claudioed/product-master/internal/domain/shared/gs1"
 )
 
 // fakeRepo is a version-guarded in-test ProductRepository. Products are
@@ -45,7 +46,21 @@ func clone(p *product.Product) *product.Product {
 		cc := product.RehydrateClassification(cl.Tags(), cl.TemperatureClass(), cl.DOTHazardClass())
 		c, src = &cc, s
 	}
-	return product.Rehydrate(p.SKU(), p.Description(), c, src, p.PhysicalProfile(), p.Version())
+	return product.RehydrateWithPackaging(p.SKU(), p.Description(), c, src, p.PhysicalProfile(), product.RehydratePackagingHierarchy(p.PackLevels().Levels()), p.Version())
+}
+
+func (r *fakeRepo) GetByGTIN(_ context.Context, gtin gs1.GTIN) (*product.Product, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
+	for _, p := range r.products {
+		if _, ok := p.PackLevels().ByGTIN(gtin); ok {
+			return clone(p), nil
+		}
+	}
+	return nil, repository.ErrGtinNotFound
 }
 
 func (r *fakeRepo) Get(_ context.Context, sku product.SKU) (*product.Product, error) {

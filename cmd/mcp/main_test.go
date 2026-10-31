@@ -14,20 +14,35 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	inboundmcp "github.com/claudioed/product-master/internal/adapters/inbound/mcp"
+	"github.com/claudioed/product-master/internal/adapters/outbound/clock"
+	outboundkafka "github.com/claudioed/product-master/internal/adapters/outbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
+	"github.com/claudioed/product-master/internal/application/usecases"
 )
 
 func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
 // newTestServer wires the binary's router and MCP handler over the in-memory
-// product repository, a TEST DOUBLE: the binary itself has no in-memory path
-// (depsFor takes any ports.ProductRepository).
+// repositories, TEST DOUBLES: the binary itself has no in-memory path
+// (depsFor takes any usecases.Writer).
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	deps := depsFor(memory.NewProductRepo())
+	srv, _ := newTestServerWithOutbox(t)
+	return srv
+}
+
+// newTestServerWithOutbox also returns the in-memory outbox, to see what a
+// write tool enqueued.
+func newTestServerWithOutbox(t *testing.T) (*httptest.Server, *memory.OutboxRepo) {
+	t.Helper()
+	products, ob := memory.NewProductRepo(), memory.NewOutboxRepo()
+	deps := depsFor(usecases.Writer{
+		Products: products, Outbox: ob, Encoder: outboundkafka.NewFanoutEncoder(),
+		UoW: memory.NewUnitOfWork(products, ob), Clock: clock.System{},
+	})
 	srv := httptest.NewServer(newRouter(inboundmcp.Handler(inboundmcp.NewServer(deps))))
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, ob
 }
 
 func TestRouter_HealthzIsOpenAndServesOK(t *testing.T) {
@@ -47,7 +62,8 @@ func TestRouter_HealthzIsOpenAndServesOK(t *testing.T) {
 }
 
 // Both mount points speak Streamable HTTP, with no credentials, and a real
-// client can list the four read-only tools and call one end to end.
+// client can list the eight tools (six read-only, two ADR 0011 writes) and
+// call one end to end.
 func TestStreamableHTTP_RootAndMCPPathsServeTools(t *testing.T) {
 	srv := newTestServer(t)
 	for _, path := range []string{"/", "/mcp"} {
@@ -56,7 +72,8 @@ func TestStreamableHTTP_RootAndMCPPathsServeTools(t *testing.T) {
 }
 
 // exerciseEndpoint connects a real Streamable HTTP client to endpoint, lists
-// the tools (four, all read-only) and calls two of them.
+// the tools (eight: the two pack level writes are annotated as writes, the
+// other six read-only) and calls two of them.
 func exerciseEndpoint(t *testing.T, endpoint string) {
 	t.Helper()
 	client := sdk.NewClient(&sdk.Implementation{Name: "t", Version: "0"}, nil)
@@ -70,12 +87,13 @@ func exerciseEndpoint(t *testing.T, endpoint string) {
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
 	}
-	if len(tools.Tools) != 4 {
-		t.Fatalf("tools = %d, want 4", len(tools.Tools))
+	if len(tools.Tools) != 8 {
+		t.Fatalf("tools = %d, want 8", len(tools.Tools))
 	}
 	for _, tool := range tools.Tools {
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
-			t.Fatalf("tool %q is not read-only", tool.Name)
+		isWrite := tool.Name == "declare_pack_level" || tool.Name == "retire_pack_level"
+		if tool.Annotations == nil || tool.Annotations.ReadOnlyHint == isWrite {
+			t.Fatalf("tool %q: read-only hint = %+v, want read-only only for the six read tools", tool.Name, tool.Annotations)
 		}
 	}
 
@@ -173,5 +191,24 @@ func TestNewLoggerLevels(t *testing.T) {
 		if got := newLogger(level); !got.Handler().Enabled(context.Background(), want) || (want > slog.LevelDebug && got.Handler().Enabled(context.Background(), want-1)) {
 			t.Errorf("newLogger(%q): level %v not the minimum enabled", level, want)
 		}
+	}
+}
+
+// The write tools of ADR 0011 reach the use cases, the outbox and the
+// encoder this binary wires: a declaration enqueues the pack level event on
+// the integration topic only (the relay in cmd/api publishes it).
+func TestWriteToolsEnqueueThroughTheWiredWriter(t *testing.T) {
+	srv, ob := newTestServerWithOutbox(t)
+	ctx := context.Background()
+	session, err := sdk.NewClient(&sdk.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx, &sdk.StreamableClientTransport{Endpoint: srv.URL + "/mcp"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	// no product yet: the use case answers, nothing is enqueued
+	res, err := session.CallTool(ctx, &sdk.CallToolParams{Name: "declare_pack_level", Arguments: map[string]any{"sku": "SKU-1", "level": "EACH", "gtin": "4006381333931"}})
+	if err != nil || !res.IsError || len(ob.Messages()) != 0 {
+		t.Fatalf("declare on an unknown SKU: err=%v res=%+v rows=%d", err, res, len(ob.Messages()))
 	}
 }

@@ -47,8 +47,14 @@ func buildServer(ad adapters, readiness *inboundhttp.Readiness, metrics http.Han
 		RecordMeasurement: &usecases.RecordMeasurement{Writer: w},
 		GetProduct:        &usecases.GetProduct{Products: ad.products},
 		ListProducts:      &usecases.ListProducts{Products: ad.products},
-		Readiness:         readiness,
-		Metrics:           metrics,
+
+		DeclarePackLevel:           &usecases.DeclarePackLevel{Writer: w},
+		RetirePackLevel:            &usecases.RetirePackLevel{Writer: w},
+		RecordPackLevelMeasurement: &usecases.RecordPackLevelMeasurement{Writer: w},
+		ResolveGTIN:                &usecases.ResolveGTIN{Products: ad.products},
+
+		Readiness: readiness,
+		Metrics:   metrics,
 	}
 }
 

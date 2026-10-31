@@ -24,6 +24,8 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0008](./0008-projector-telemetry-and-environment.md) | The analytics projector sets up telemetry; every backend Deployment sets ENVIRONMENT | Accepted (2026-10-13); additive |
 | [0009](./0009-trace-context-crosses-the-outbox.md) | The W3C trace context crosses the outbox to Kafka | Accepted (2026-10-13); additive |
 | [0010](./0010-postgres-and-kafka-are-the-only-runtime.md) | Postgres and Kafka are the only runtime (no in-memory mode, no log sink, real `/readyz`) | Accepted (2026-10-19) |
+| [0011](./0011-packaging-hierarchy-with-gs1-gtin.md) | Packaging hierarchy with GS1 GTIN; eaches are the ledger unit | Proposed (2026-10-23); would amend 0005 (two MCP write tools) |
+| [0012](./0012-a2a-inbound-adapter.md) | A2A inbound adapter (third driving adapter): `product_profile` (read) and `declare_pack_level` (write), delegation only | Accepted (2026-10-29); additive |
 
 ## Where each decision lives in the code
 
@@ -39,5 +41,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | 0008 | `cmd/product-projector/main.go` (`setupTelemetry`), `charts/product-master/templates/{projector,reports}-deployment.yaml` |
 | 0009 | `internal/adapters/outbound/postgres/outbox_repository.go` (`Insert`, `traceHeaders`), `internal/adapters/outbound/kafka/relay_sink.go` |
 | 0010 | `cmd/api/{config,adapters,relay,main}.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `internal/adapters/inbound/http/readiness.go`, `internal/adapters/outbound/kafka/health.go`, `internal/architecture/runtime_no_memory_fitness_test.go`, `charts/product-master/templates/_helpers.tpl` |
+| 0011 | not built yet (Proposed): `internal/domain/product` (`PackagingHierarchy`), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
+| 0012 | `cmd/a2a`, `internal/adapters/inbound/a2a`, `charts/product-master/templates/a2a-*.yaml` |
 
 Back to the [documentation](/docs/intro).

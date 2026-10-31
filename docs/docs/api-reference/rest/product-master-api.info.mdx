@@ -45,6 +45,18 @@ Errors are RFC 7807 problem documents with
 `type = https://errors.product-master.warehouse-systems.dev/<slug>`.
 There is no authentication layer (fleet decision 2026-09-11).
 
+**Packaging hierarchy (ADR 0011).** A product also carries the pack levels
+it is sold, shipped and received in (`EACH`, `INNER`, `CASE`, `PALLET`),
+each identified by a GS1 GTIN. Eaches are the ledger unit: `unitsPerPack`
+is the factor to eaches. A GTIN is always the 14-digit zero-left-padded
+string; 8, 12, 13 and 14 digit input with a valid mod-10 check digit is
+accepted and normalised. A GTIN identifies exactly one (sku, level),
+fleet-wide, for ever. Once a level is active its content quantity never
+changes: a new quantity is a new GTIN at that level (declaring it end-dates
+the old level, which is kept and still resolvable). `PUT` declarations
+stay idempotent; `POST .../{level}:retire` is idempotent too (retiring a
+retired level changes nothing).
+
 
 <div
   style={{"display":"flex","flexDirection":"column","marginBottom":"var(--ifm-paragraph-margin-bottom)"}}

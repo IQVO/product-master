@@ -86,6 +86,9 @@ export function ProductDetailScreen({ sku }: { sku: string }) {
       <Card title="Physical profile">
         <PhysicalProfileView profile={product.physicalProfile} />
       </Card>
+      <Card title="Packaging">
+        <Link to="packaging">Pack levels, GTINs and eaches per pack →</Link>
+      </Card>
       <Card title="Classify">
         <ClassifyForm sku={product.sku} current={product.classification} onSaved={refresh} />
       </Card>

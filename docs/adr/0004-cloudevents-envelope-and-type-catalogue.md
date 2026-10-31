@@ -37,6 +37,9 @@ catalogue of every type product-master publishes or consumes;
 | `com.warehouse.wms.product-master.product.ProductClassified` | a classification is set or replaced |
 | `com.warehouse.wms.product-master.product.ProductDimensionsDeclared` | declared dimensions/weight are set or replaced |
 | `com.warehouse.wms.product-master.product.ProductMeasured` | a measurement is recorded |
+| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | a pack level is declared, or its flags or declared dimensions change (ADR 0011) |
+| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | a pack level is end-dated, by `RetirePackLevel` or because a new GTIN superseded it (ADR 0011) |
+| `com.warehouse.wms.product-master.product.ProductPackLevelMeasured` | a measurement of a pack level is recorded (ADR 0011) |
 
 Payload rules:
 
@@ -56,6 +59,18 @@ Payload rules:
   discrepancy, version}` where `declared`/`effective` are `{length_mm,
   width_mm, height_mm, weight_g, volume_mm3}` and `measured` adds
   `measured_at` and an optional `device_id` (ADR 0002).
+- The three pack level types (added 2026-10-24, ADR 0011) are integration-only
+  (not on the analytics stream): `ProductPackLevelDeclared.data` =
+  `{sku, level, gtin, child_gtin?, qty_of_child?, units_per_pack, dims?,
+  is_orderable, is_despatch_unit, effective_from, version}`,
+  `ProductPackLevelRetired.data` = `{sku, level, gtin, effective_to, reason,
+  version}`, `ProductPackLevelMeasured.data` = `{sku, level, gtin, dims,
+  measured_at, device_id?, version}`. `level` is `EACH | INNER | CASE |
+  PALLET`; every `gtin` is the 14-digit zero-left-padded string; `dims` is
+  `{length_mm, width_mm, height_mm, weight_g}`; the timestamps are RFC 3339
+  UTC. Declaring a new GTIN at an active level emits `Retired` (reason
+  `superseded`) then `Declared`, one `version` apart. They keep the
+  snake_case of the five older payloads.
 - A change that alters nothing (the same classification, the same declared
   dimensions, the same description) raises no event and does not bump
   `version`.
@@ -70,7 +85,7 @@ E (2026-10-17).
 
 ### Published on `warehouse.product-master.analytics` (ADR 0006)
 
-The same five types, written by the same outbox in the same transaction as
+The same five types (the pack level types of ADR 0011 are not on this stream), written by the same outbox in the same transaction as
 the integration rows, with the **same `type` and the same `id` per
 occurrence**, `subject` and Kafka key = the SKU, and
 `dataschema` `urn:warehouse:product-master:analytics:<EventName>:v1`. The

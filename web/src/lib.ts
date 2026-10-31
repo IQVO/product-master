@@ -1,6 +1,6 @@
 import { NO_VALUE, formatNumber } from "@warehouse/ui-kit";
-import { HANDLING_TAGS } from "./types";
-import type { HandlingTag, UnitDimensions } from "./types";
+import { HANDLING_TAGS, PACK_LEVELS } from "./types";
+import type { HandlingTag, PackLevel, PackLevelDefinition, UnitDimensions } from "./types";
 
 /** "200 × 120 × 80 mm" (length × width × height). */
 export function formatDims(d: UnitDimensions | undefined): string {
@@ -71,4 +71,34 @@ export function skuProblem(sku: string): string | null {
   // eslint-disable-next-line no-control-regex
   if (/[\s/\u0000-\u001f\u007f]/.test(sku)) return "A SKU cannot contain spaces, control characters or '/'.";
   return null;
+}
+
+const LEVEL_NOUN: Record<PackLevel, string> = { EACH: "Each", INNER: "Inner", CASE: "Case", PALLET: "Pallet" };
+
+/** "Case of 12 eaches". Quantities are ALWAYS eaches, so a pack is named by
+ *  how many eaches it holds ("Each" for the single unit, "Case of 1 each" never occurs). */
+export function packLabel(level: PackLevel, unitsPerPack: number): string {
+  if (level === "EACH") return LEVEL_NOUN.EACH;
+  return `${LEVEL_NOUN[level]} of ${formatNumber(unitsPerPack)} ${unitsPerPack === 1 ? "each" : "eaches"}`;
+}
+
+/** A GTIN as typed: only digits, 8, 12, 13 or 14 of them (the service checks the mod-10 digit). */
+export function gtinProblem(raw: string, what = "GTIN"): string | null {
+  const s = raw.trim();
+  if (s.length === 0) return `Enter the ${what}.`;
+  if (!/^\d+$/.test(s)) return `The ${what} is digits only.`;
+  if (![8, 12, 13, 14].includes(s.length)) return `The ${what} must have 8, 12, 13 or 14 digits.`;
+  return null;
+}
+
+/** Levels in hierarchy order (EACH, INNER, CASE, PALLET); within a level the
+ *  active definition first, then the retired ones, newest first. */
+export function orderLevels(items: readonly PackLevelDefinition[]): PackLevelDefinition[] {
+  const rank = (l: PackLevel) => PACK_LEVELS.indexOf(l);
+  return [...items].sort(
+    (a, b) =>
+      rank(a.level) - rank(b.level) ||
+      Number(b.active) - Number(a.active) ||
+      b.effectiveFrom.localeCompare(a.effectiveFrom),
+  );
 }

@@ -8,9 +8,14 @@ sidebar_label: MCP tools
 
 `cmd/mcp` is a second, independent deployable that exposes product master data
 to AI agents over the Model Context Protocol
-([ADR 0005](/docs/adr/0005-mcp-server-adoption)). It calls the **same** read
-use cases as the REST adapter (`GetProduct`, `ListProducts`) and has no write
-use case wired at all, so it can never change data or insert into the outbox.
+([ADR 0005](/docs/adr/0005-mcp-server-adoption)). It calls the **same** use
+cases as the REST adapter: the reads (`GetProduct`, `ListProducts`,
+`ResolveGTIN`) and, since
+[ADR 0011](/docs/adr/0011-packaging-hierarchy-with-gs1-gtin) amended ADR 0005,
+exactly two writes (`DeclarePackLevel`, `RetirePackLevel`). Those two write the
+pack level rows and the encoded events into the transactional outbox in one
+Postgres transaction, like `cmd/api`; the binary still never dials Kafka and
+never runs the relay (the relay in `cmd/api` publishes what it enqueued).
 
 | Property | Value | Source |
 | --- | --- | --- |
@@ -23,17 +28,24 @@ use case wired at all, so it can never change data or insert into the outbox.
 | Data | the OLTP database (`DATABASE_URL`, mandatory: the binary exits at boot without it, [ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)) | `cmd/mcp/main.go` |
 | In the kind cluster | `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, read by warehouse-ops-agent (`PRODUCT_MASTER_MCP_ENDPOINT`) | README, warehouse-infra |
 
-At `initialize` the server sends instructions telling the client that nothing
-here changes data and that registering, classifying and measuring are REST
-operations.
+At `initialize` the server sends instructions telling the client that only
+`declare_pack_level` and `retire_pack_level` change data and that registering,
+classifying and measuring are REST operations.
 
 ## Tools
 
-All four tools carry the annotations `readOnlyHint: true`,
+The six read tools carry the annotations `readOnlyHint: true`,
 `idempotentHint: true` and `openWorldHint: false` (read-only, idempotent,
-closed world). The schemas below are the ones a live `tools/list` returns; they
-are pinned by `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`.
-`governance_test.go` fails the build on a tool whose name contains a write verb.
+closed world). The two write tools carry `readOnlyHint: false`,
+`idempotentHint: true`, `openWorldHint: false` and an explicit
+`destructiveHint` (`false` for `declare_pack_level`, `true` for
+`retire_pack_level`, which end-dates a GTIN for good) and their descriptions
+start with `WRITE.`. The schemas below are the ones a live `tools/list`
+returns; they are pinned by
+`internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`.
+`governance_test.go` fails the build on a tool whose name contains a write verb
+unless it is one of the two allow-listed pack level tools, and on a tool count
+above 8.
 
 | Tool | Annotation | Input fields | Output | Errors |
 | --- | --- | --- | --- | --- |
@@ -41,6 +53,10 @@ are pinned by `internal/adapters/inbound/mcp/testdata/tool_registry.golden.json`
 | `list_products` | read-only | `limit` (integer, optional; 1..500, omitted or 0 means 100), `cursor` (string, optional; the previous page's `next_cursor`), `handling_tag` (string, optional; `Hazmat`, `Fragile`, `TemperatureSensitive`, `Oversized` or `HighValue`), `classified` (boolean or null, optional; `true` only classified, `false` only unclassified) | `items` (products as in `get_product`, ascending SKU order), `next_cursor` (absent on the last page) | `malformed-request` (bad limit, cursor or tag) |
 | `get_product_classification` | read-only | `sku` (string, **required**) | `sku`, `handling_tags` (stable order Hazmat, Fragile, TemperatureSensitive, Oversized, HighValue), `temperature_class` (`Ambient`, `Chilled`, `Frozen`; only with TemperatureSensitive), `dot_hazard_class` (1..9; only with Hazmat), `classification_source` (`native` or `legacy-import`), `version` | `invalid-sku`, `product-not-found`, `product-classification-not-found` |
 | `get_physical_profile` | read-only | `sku` (string, **required**) | `sku`, `declared` and `effective` (`length_mm`, `width_mm`, `height_mm`, `weight_g`, `volume_mm3`), `measured` (the same plus `measured_at`, `device_id`), `effective_source` (`measured`, `declared` or `none`), `discrepancy` (declared and measured differ by more than 10%), `version` | `invalid-sku`, `product-not-found` |
+| `resolve_gtin` | read-only | `gtin` (string, **required**): 8, 12, 13 or 14 digits with a valid mod-10 check digit, normalised to 14 | `gtin` (14 digits), `sku`, `level` (`EACH`, `INNER`, `CASE`, `PALLET`), `units_per_pack`, `child_gtin`, `active`, `effective_from`, `effective_to`; a retired GTIN resolves with `active: false` | `invalid-gtin`, `variable-measure-unsupported`, `gtin-not-found` |
+| `get_pack_levels` | read-only | `sku` (string, **required**) | `sku`, `version`, `items` (every level ever declared, retired ones included, lowest level first: `level`, `gtin`, `child_gtin`, `qty_of_child`, `units_per_pack`, `dims`, `measured`, `is_orderable`, `is_despatch_unit`, `active`, `effective_from`, `effective_to`) | `invalid-sku`, `product-not-found` |
+| `declare_pack_level` | **write**, idempotent | `sku`, `level`, `gtin` (**required**); `child_gtin`, `qty_of_child` (required above EACH), `units_per_pack`, `dims` (`length_mm`, `width_mm`, `height_mm`, `weight_g`), `is_orderable`, `is_despatch_unit` (optional) | `sku`, `version`, `pack_level` (as an item of `get_pack_levels`). A new `gtin` at an active level end-dates the old level (`superseded`); the content quantity of an active level never changes | `invalid-sku`, `invalid-pack-level`, `invalid-gtin`, `variable-measure-unsupported`, `invalid-pack-quantity`, `invalid-dimension`, `invalid-weight`, `pack-level-order`, `pack-quantity-immutable`, `pack-dimensions-below-contents`, `gtin-already-assigned`, `product-not-found` |
+| `retire_pack_level` | **write**, idempotent | `sku`, `level` (**required**); `reason` (optional, 1..200 characters; omitted means `retired`) | `sku`, `version`, `pack_level` (now `active: false`); retiring a retired level changes nothing | `invalid-sku`, `invalid-pack-level`, `invalid-reason`, `pack-level-not-found`, `product-not-found` |
 
 Field names are snake_case (the REST bodies use camelCase for the same data).
 
@@ -57,6 +73,9 @@ as the last segment of the REST problem `type`
 | `invalid-sku` | malformed SKU |
 | `product-not-found` | unknown SKU |
 | `product-classification-not-found` | `get_product_classification` on an unclassified product |
+| `invalid-gtin`, `variable-measure-unsupported`, `invalid-pack-level`, `invalid-pack-quantity`, `invalid-reason`, `invalid-dimension`, `invalid-weight` | a GTIN, level, quantity, reason or dimension the pack level tools reject (ADR 0011) |
+| `gtin-not-found`, `pack-level-not-found` | `resolve_gtin` on a GTIN no level holds; `retire_pack_level` on a level the SKU never had |
+| `gtin-already-assigned`, `pack-quantity-immutable`, `pack-level-order`, `pack-dimensions-below-contents`, `concurrent-modification` | conflicts of `declare_pack_level` / `retire_pack_level` (same meaning as the REST `409` slugs) |
 | `internal-error` | anything else (database failure); the real error is logged as `mcp tool failed with an unexpected error` and never returned |
 
 Example for a SKU that does not exist (captured from a test over an empty repository double):

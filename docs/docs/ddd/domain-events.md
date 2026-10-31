@@ -35,6 +35,16 @@ balancer), `time` = domain occurred-at (UTC),
 | `com.warehouse.wms.product-master.product.ProductClassified` | `warehouse.product-master.events` | `ClassifyProduct` | `sku`, `handling_tags[]`, `temperature_class` (omitted when unset), `dot_hazard_class` (omitted when unset), `classification_source`, `version` | `inventory-storage` (`PRODUCT_MASTER_CONSUMER_GROUP`), `order-management`, `wes-work-planning`, `fulfillment-execution` (each `PRODUCT_CLASSIFICATION_CONSUMER_GROUP`), `slotting-optimization` (`PRODUCT_CONSUMER_GROUP`) |
 | `com.warehouse.wms.product-master.product.ProductDimensionsDeclared` | `warehouse.product-master.events` | `DeclareDimensions` | full physical profile: `sku`, `declared`, `measured`, `effective` (each omitted when absent), `effective_source`, `discrepancy`, `version` | `slotting-optimization` (`PRODUCT_CONSUMER_GROUP`); the other uses ADR 0002 names are not built |
 | `com.warehouse.wms.product-master.product.ProductMeasured` | `warehouse.product-master.events` | `RecordMeasurement` | the same full physical profile | `slotting-optimization` (`PRODUCT_CONSUMER_GROUP`) |
+| `com.warehouse.wms.product-master.product.ProductPackLevelDeclared` | `warehouse.product-master.events` | `DeclarePackLevel` | the full level: `sku`, `level`, `gtin`, `child_gtin`?, `qty_of_child`?, `units_per_pack`, `dims`?, `is_orderable`, `is_despatch_unit`, `effective_from`, `version` | none yet (ADR 0011 specifies inbound-receiving, inventory-storage, slotting-optimization, pick-face-replenishment, fulfillment-execution, wes-work-planning, process-path-management, labor-performance and network-fulfillment; each builds its own projection) |
+| `com.warehouse.wms.product-master.product.ProductPackLevelRetired` | `warehouse.product-master.events` | `RetirePackLevel`, `DeclarePackLevel` (a new GTIN at an active level, reason `superseded`) | `sku`, `level`, `gtin`, `effective_to`, `reason`, `version` | the same list |
+| `com.warehouse.wms.product-master.product.ProductPackLevelMeasured` | `warehouse.product-master.events` | `RecordPackLevelMeasurement` | `sku`, `level`, `gtin`, `dims`, `measured_at`, `device_id`?, `version` | the same list |
+
+The pack level events use the snake_case of the others; every `gtin` is the
+14-digit zero-left-padded string, `level` is `EACH | INNER | CASE | PALLET`,
+`dims` is `{length_mm, width_mm, height_mm, weight_g}` and `units_per_pack` is the
+direct factor to eaches. A new GTIN at an active level raises Retired (`superseded`)
+and then Declared, one `version` apart. A consumer must keep retired levels: an
+in-flight ASN may still name the old GTIN.
 
 `declared` and `effective` are
 `{length_mm, width_mm, height_mm, weight_g, volume_mm3}` (integers); `measured`
@@ -59,7 +69,7 @@ alters nothing raises no event.
 
 ### Analytics copy
 
-Every event above is ALSO written, in the same outbox transaction and under
+Every unit event above (not the three pack level events) is ALSO written, in the same outbox transaction and under
 the same CloudEvents `id`, to `warehouse.product-master.analytics`
 (dataschema `urn:warehouse:product-master:analytics:<EventName>:v1`, same
 payload), consumed only by this service's `product-projector` for the master

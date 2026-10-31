@@ -92,3 +92,62 @@ export interface MeasurementInput extends UnitDimensionsInput {
   measuredAt: string;
   deviceId?: string;
 }
+
+/** Packaging levels, lowest first (ADR 0011). Quantities are ALWAYS eaches. */
+export const PACK_LEVELS = ["EACH", "INNER", "CASE", "PALLET"] as const;
+export type PackLevel = (typeof PACK_LEVELS)[number];
+
+export interface PackLevelDefinition {
+  level: PackLevel;
+  /** Always the 14-digit GTIN. */
+  gtin: string;
+  /** Absent for EACH. */
+  childGtin?: string;
+  /** How many child packs make one of this level; absent for EACH. */
+  qtyOfChild?: number;
+  /** Eaches in ONE pack of this level (1 for EACH). */
+  unitsPerPack: number;
+  dims?: UnitDimensions;
+  measured?: Measurement;
+  isOrderable: boolean;
+  isDespatchUnit: boolean;
+  /** False once the level is end-dated (retired or superseded). */
+  active: boolean;
+  effectiveFrom: string;
+  effectiveTo?: string;
+}
+
+/** GET /products/{sku}/pack-levels: every level ever declared, retired included. */
+export interface PackLevelList {
+  sku: string;
+  version: number;
+  items: PackLevelDefinition[];
+}
+
+/** The body of PUT /products/{sku}/pack-levels/{level}. */
+export interface PackLevelInput {
+  gtin: string;
+  childGtin?: string;
+  qtyOfChild?: number;
+  dims?: UnitDimensionsInput;
+  isOrderable?: boolean;
+  isDespatchUnit?: boolean;
+}
+
+/** The 200/201 answer of declare and retire: the level plus the product version. */
+export interface PackLevelResource extends PackLevelDefinition {
+  sku: string;
+  version: number;
+}
+
+/** GET /gtins/{gtin}. */
+export interface GtinResolution {
+  gtin: string;
+  sku: string;
+  level: PackLevel;
+  unitsPerPack: number;
+  childGtin?: string;
+  active: boolean;
+  effectiveFrom: string;
+  effectiveTo?: string;
+}

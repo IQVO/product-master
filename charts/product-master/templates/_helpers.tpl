@@ -42,7 +42,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{/*
 Selector labels. Shared by every pod this release creates, so every
-Deployment and Service ALSO pins app.kubernetes.io/component (api, mcp):
+Deployment and Service ALSO pins app.kubernetes.io/component (api, mcp, a2a):
 a Service selecting on these two alone would select every component.
 */}}
 {{- define "product-master.selectorLabels" -}}
@@ -78,6 +78,13 @@ Fully qualified name of the MCP server deployment/service.
 */}}
 {{- define "product-master.mcpFullname" -}}
 {{- include "product-master.fullname" . }}-mcp
+{{- end }}
+
+{{/*
+Fully qualified name of the A2A agent Deployment/Service (<release>-a2a, ADR 0012).
+*/}}
+{{- define "product-master.a2aFullname" -}}
+{{- include "product-master.fullname" . }}-a2a
 {{- end }}
 
 {{/*
@@ -124,7 +131,7 @@ render instead of crash-looping.
 {{- end -}}
 
 {{/*
-Image reference shared by every Deployment (api, mcp, analytics-projector, analytics-reports).
+Image reference shared by every Deployment (api, mcp, a2a, analytics-projector, analytics-reports).
 */}}
 {{- define "product-master.image" -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}

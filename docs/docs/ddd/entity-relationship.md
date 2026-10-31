@@ -10,8 +10,8 @@ sidebar_position: 19
 The final OLTP schema after applying every migration in order. The OLTP
 Postgres database (`DATABASE_URL`) is migrated at boot by `cmd/api` with
 golang-migrate (`postgres.RunMigrations`, over `MIGRATIONS_DATABASE_URL` when
-set) from `internal/adapters/outbound/postgres/migrations/`. There is a single
-migration so far, `0001_products_outbox`. golang-migrate keeps its own
+set) from `internal/adapters/outbound/postgres/migrations/`. There are two
+migrations, `0001_products_outbox` and `0002_product_pack_levels` (ADR 0011). golang-migrate keeps its own
 `schema_migrations` table. `DATABASE_URL` is mandatory: there is no in-memory
 mode ([ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)).
 The separate analytical database (`ANALYTICS_DATABASE_URL`: tables
@@ -44,6 +44,30 @@ erDiagram
     timestamptz created_at
     timestamptz updated_at
   }
+  product_pack_levels {
+    text sku PK "FK products, COLLATE C"
+    text gtin PK "14 digits, UNIQUE on its own (fleet-wide), never reused"
+    text level "EACH, INNER, CASE or PALLET"
+    text child_gtin "NULL exactly for EACH"
+    integer qty_of_child "NULL exactly for EACH, else 2 to 1000000"
+    integer units_per_pack "direct factor to eaches, 1 for EACH"
+    bigint declared_length_mm "declared dims, all four or none"
+    bigint declared_width_mm "nullable"
+    bigint declared_height_mm "nullable"
+    bigint declared_weight_g "nullable"
+    bigint measured_length_mm "measured dims and measured_at, all five or none"
+    bigint measured_width_mm "nullable"
+    bigint measured_height_mm "nullable"
+    bigint measured_weight_g "nullable"
+    timestamptz measured_at "nullable"
+    text measured_device_id "nullable"
+    boolean is_orderable
+    boolean is_despatch_unit
+    timestamptz effective_from
+    timestamptz effective_to "NULL while active; at most one active row per sku and level"
+    timestamptz created_at
+    timestamptz updated_at
+  }
   outbox_events {
     bigserial id PK
     text event_id UK "UNIQUE with topic"
@@ -68,9 +92,11 @@ erDiagram
     bigint version PK
     boolean dirty
   }
+  products ||--o{ product_pack_levels : "has pack levels"
 ```
 
 Source: `internal/adapters/outbound/postgres/migrations/0001_products_outbox.up.sql`,
+`0002_product_pack_levels.up.sql` (ADR 0011),
 `internal/adapters/outbound/postgres/migrate.go`, `product_repository.go`,
 `outbox_repository.go`, `processed_event_repository.go`.
 Omits: the indexes (`idx_products_handling_tags`, a GIN index for the

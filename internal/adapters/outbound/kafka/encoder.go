@@ -70,6 +70,48 @@ type physicalProfileData struct {
 	Version         int64           `json:"version"`
 }
 
+// packDimsData is the dimensions of a pack level on the wire: the four
+// stored values, no derived volume (ADR 0011).
+type packDimsData struct {
+	LengthMm int64 `json:"length_mm"`
+	WidthMm  int64 `json:"width_mm"`
+	HeightMm int64 `json:"height_mm"`
+	WeightG  int64 `json:"weight_g"`
+}
+
+type packLevelDeclaredData struct {
+	SKU            string        `json:"sku"`
+	Level          string        `json:"level"`
+	GTIN           string        `json:"gtin"`
+	ChildGTIN      string        `json:"child_gtin,omitempty"`
+	QtyOfChild     int           `json:"qty_of_child,omitempty"`
+	UnitsPerPack   int           `json:"units_per_pack"`
+	Dims           *packDimsData `json:"dims,omitempty"`
+	IsOrderable    bool          `json:"is_orderable"`
+	IsDespatchUnit bool          `json:"is_despatch_unit"`
+	EffectiveFrom  string        `json:"effective_from"`
+	Version        int64         `json:"version"`
+}
+
+type packLevelRetiredData struct {
+	SKU         string `json:"sku"`
+	Level       string `json:"level"`
+	GTIN        string `json:"gtin"`
+	EffectiveTo string `json:"effective_to"`
+	Reason      string `json:"reason"`
+	Version     int64  `json:"version"`
+}
+
+type packLevelMeasuredData struct {
+	SKU        string       `json:"sku"`
+	Level      string       `json:"level"`
+	GTIN       string       `json:"gtin"`
+	Dims       packDimsData `json:"dims"`
+	MeasuredAt string       `json:"measured_at"`
+	DeviceID   string       `json:"device_id,omitempty"`
+	Version    int64        `json:"version"`
+}
+
 // Encoder implements ports.EventEncoder: each domain event becomes one
 // outbox.Message holding the CloudEvents bytes, the Kafka key (the SKU) and
 // the content-type header. The CloudEvents `id` is minted HERE, once, and
@@ -160,9 +202,39 @@ func payloadFor(ev product.Event) (any, error) {
 		return profile(e.Header, e.Profile), nil
 	case product.ProductMeasured:
 		return profile(e.Header, e.Profile), nil
+	case product.ProductPackLevelDeclared:
+		return packLevelDeclared(e), nil
+	case product.ProductPackLevelRetired:
+		return packLevelRetiredData{
+			SKU: string(e.SKU), Level: string(e.Level), GTIN: e.GTIN.String(),
+			EffectiveTo: e.EffectiveTo.UTC().Format(time.RFC3339Nano), Reason: e.Reason, Version: e.Version,
+		}, nil
+	case product.ProductPackLevelMeasured:
+		return packLevelMeasuredData{
+			SKU: string(e.SKU), Level: string(e.Level), GTIN: e.GTIN.String(), Dims: packDims(e.Measurement.Dimensions()),
+			MeasuredAt: e.Measurement.MeasuredAt().UTC().Format(time.RFC3339Nano), DeviceID: e.Measurement.DeviceID(), Version: e.Version,
+		}, nil
 	default:
 		return nil, fmt.Errorf("kafka encoder: %s is not a published event", ev.EventName())
 	}
+}
+
+func packDims(d product.UnitDimensions) packDimsData {
+	return packDimsData{LengthMm: d.LengthMm(), WidthMm: d.WidthMm(), HeightMm: d.HeightMm(), WeightG: d.WeightG()}
+}
+
+func packLevelDeclared(e product.ProductPackLevelDeclared) packLevelDeclaredData {
+	d := e.Def
+	out := packLevelDeclaredData{
+		SKU: string(e.SKU), Level: string(d.Level()), GTIN: d.GTIN().String(), ChildGTIN: d.ChildGTIN().String(),
+		QtyOfChild: d.QtyOfChild(), UnitsPerPack: d.UnitsPerPack(), IsOrderable: d.IsOrderable(), IsDespatchUnit: d.IsDespatchUnit(),
+		EffectiveFrom: d.EffectiveFrom().UTC().Format(time.RFC3339Nano), Version: e.Version,
+	}
+	if dims, ok := d.DeclaredDimensions(); ok {
+		pd := packDims(dims)
+		out.Dims = &pd
+	}
+	return out
 }
 
 func classified(e product.ProductClassified) classifiedData {

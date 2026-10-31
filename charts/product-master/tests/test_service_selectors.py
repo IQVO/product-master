@@ -2,7 +2,7 @@
 """Assert this chart's Service selectors isolate each component.
 
 Why this exists (fleet-wide): `app.kubernetes.io/name` + `instance` are identical
-on every pod a release creates (api, mcp). A Service that selects on those two
+on every pod a release creates (api, mcp, a2a). A Service that selects on those two
 alone selects ALL of them -- verified live in other fleet charts, where a Kong
 request for an api /healthz was answered by the wrong pod. Every Deployment here
 carries `app.kubernetes.io/component` in selector.matchLabels and its pod
@@ -11,7 +11,7 @@ Deployment. This test fails if that ever stops being true.
 
 It mirrors warehouse-planning's charts/.../tests/test_service_selectors.py
 (and warehouse-infra's scripts/check-chart-selectors.py), restricted to the
-components this chart has: api (always), mcp (optional, default off), the
+components this chart has: api (always), mcp and a2a (optional, default off), the
 analytics read side (ADR 0006: analytics-projector, analytics-reports;
 optional, default off) and frontend (optional, default off). The frontend is
 the nginx pod serving the productmaster_mfe remote: its own workload,
@@ -39,6 +39,7 @@ BASE = [
 ]
 ENABLE_EVERYTHING = BASE + [
     "--set", "mcp.enabled=true",
+    "--set", "a2a.enabled=true",
     "--set", "frontend.enabled=true",
     "--set", "autoscaling.api.enabled=true",
     "--set", "gatewayApi.enabled=true",
@@ -107,6 +108,21 @@ def check_components(docs: list[dict], failures: list[str]) -> None:
         stray = {"KAFKA_BROKERS", "EVENT_PUBLISHER"} & set(env_names(deployments[mcp]))
         if stray:
             failures.append(f"the MCP Deployment must not get Kafka/relay env (it never dials Kafka): {sorted(stray)}")
+
+    a2a = f"{RELEASE}-a2a"
+    if a2a not in services:
+        failures.append("the A2A Service was not rendered with a2a.enabled=true")
+    elif selector_of(services[a2a]).get("app.kubernetes.io/component") != "a2a":
+        failures.append("the A2A Service selector must pin component=a2a")
+    if a2a not in deployments:
+        failures.append("the A2A Deployment was not rendered with a2a.enabled=true")
+    else:
+        container = deployments[a2a]["spec"]["template"]["spec"]["containers"][0]
+        if container.get("command") != ["/app/a2a"]:
+            failures.append("the A2A Deployment must run /app/a2a")
+        stray = {"KAFKA_BROKERS", "EVENT_PUBLISHER"} & set(env_names(deployments[a2a]))
+        if stray:
+            failures.append(f"the A2A Deployment must not get Kafka/relay env (it never dials Kafka): {sorted(stray)}")
 
     check_analytics(services, deployments, failures)
     frontend = f"{RELEASE}-frontend"
@@ -220,10 +236,10 @@ def main() -> int:
 
     check_components(render(ENABLE_EVERYTHING), failures)
 
-    # Default values must not deploy the MCP component, an HPA or a route.
+    # Default values must not deploy the MCP or A2A component, an HPA or a route.
     defaults = render(BASE)
     stray = [d["metadata"]["name"] for d in defaults
-             if d["metadata"]["name"].endswith(("-mcp", "-projector", "-reports", "-analytics", "-frontend"))]
+             if d["metadata"]["name"].endswith(("-mcp", "-a2a", "-projector", "-reports", "-analytics", "-frontend"))]
     stray += [d["kind"] for d in defaults if d.get("kind") in {"HorizontalPodAutoscaler", "Ingress", "HTTPRoute"}]
     if stray:
         failures.append(f"optional components rendered with default values: {stray}")
@@ -240,8 +256,8 @@ def main() -> int:
             print(f"FAIL: {f}")
         return 1
 
-    print("PASS: every Service selects exactly one Deployment (api, mcp, analytics-reports, frontend); mcp, "
-          "analytics, frontend, HPA and routes are off by default; the chart refuses to render without a database "
+    print("PASS: every Service selects exactly one Deployment (api, mcp, a2a, analytics-reports, frontend); mcp, "
+          "a2a, analytics, frontend, HPA and routes are off by default; the chart refuses to render without a database "
           "source or Kafka brokers, with the log publisher, kafka.enabled=false, a *_MODE variable, or analytics "
           "without an analytical DSN or consumer group")
     return 0

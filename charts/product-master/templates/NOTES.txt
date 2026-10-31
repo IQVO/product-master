@@ -24,6 +24,13 @@ MCP server (read-only tools, Streamable HTTP, no auth):
   http://{{ include "product-master.mcpFullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.mcp.service.port }}/mcp
 {{- end }}
 
+{{- if .Values.a2a.enabled }}
+
+A2A agent (skills product_profile and declare_pack_level, JSON-RPC, no auth):
+  http://{{ include "product-master.a2aFullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.a2a.service.port }}/
+  Agent Card: .../.well-known/agent-card.json
+{{- end }}
+
 Runtime: real Postgres and real Kafka only (ADR 0010). Product events are
 relayed from the transactional outbox onto warehouse.product-master.events and
 warehouse.product-master.analytics ({{ .Values.kafka.brokers }}); the broker

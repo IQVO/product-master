@@ -18,8 +18,9 @@ import (
 
 // harness is a connected in-memory MCP client over the real server wired to
 // in-memory repos, exactly as cmd/mcp wires them (minus Postgres). The write
-// use cases exist ONLY here, to seed data the way the REST adapter would:
-// the MCP surface itself has none.
+// use cases below the pack level ones exist ONLY here, to seed data the way
+// the REST adapter would: the MCP surface has just declare_pack_level and
+// retire_pack_level (ADR 0011).
 type harness struct {
 	session  *sdk.ClientSession
 	outbox   *memory.OutboxRepo
@@ -29,10 +30,16 @@ type harness struct {
 	measure  *usecases.RecordMeasurement
 }
 
+// depsFor wires the tools over products. The two write tools get a Writer
+// with no outbox: only newHarness gives them a real one.
 func depsFor(products ports.ProductRepository) inboundmcp.Deps {
+	w := usecases.Writer{Products: products, Clock: clock.System{}}
 	return inboundmcp.Deps{
-		GetProduct:   &usecases.GetProduct{Products: products},
-		ListProducts: &usecases.ListProducts{Products: products},
+		GetProduct:       &usecases.GetProduct{Products: products},
+		ListProducts:     &usecases.ListProducts{Products: products},
+		ResolveGTIN:      &usecases.ResolveGTIN{Products: products},
+		DeclarePackLevel: &usecases.DeclarePackLevel{Writer: w},
+		RetirePackLevel:  &usecases.RetirePackLevel{Writer: w},
 	}
 }
 
@@ -61,8 +68,11 @@ func newHarness(t *testing.T) *harness {
 		Products: products, Outbox: ob, Encoder: outboundkafka.NewEncoder(),
 		UoW: memory.NewUnitOfWork(products, ob, processed), Clock: clock.System{},
 	}
+	deps := depsFor(products)
+	deps.DeclarePackLevel = &usecases.DeclarePackLevel{Writer: w}
+	deps.RetirePackLevel = &usecases.RetirePackLevel{Writer: w}
 	return &harness{
-		session:  connectSession(t, depsFor(products)),
+		session:  connectSession(t, deps),
 		outbox:   ob,
 		register: &usecases.RegisterProduct{Writer: w},
 		classify: &usecases.ClassifyProduct{Writer: w},

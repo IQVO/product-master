@@ -12,6 +12,7 @@ import (
 	"github.com/claudioed/product-master/internal/application/ports"
 	"github.com/claudioed/product-master/internal/application/repository"
 	"github.com/claudioed/product-master/internal/domain/product"
+	"github.com/claudioed/product-master/internal/domain/shared/gs1"
 )
 
 // ProductRepo is the pgx-backed ports.ProductRepository over the products
@@ -79,7 +80,7 @@ func dims(v [4]*int64) *product.UnitDimensions {
 
 // toProduct rehydrates the aggregate (no invariant re-check: the row was
 // written from a valid aggregate).
-func (r *productRow) toProduct() *product.Product {
+func (r *productRow) toProduct(packaging product.PackagingHierarchy) *product.Product {
 	var classification *product.Classification
 	var source product.ClassificationSource
 	if r.handlingTags != nil {
@@ -100,7 +101,7 @@ func (r *productRow) toProduct() *product.Product {
 		measurement = &m
 	}
 	profile := product.RehydratePhysicalProfile(dims(r.declared), measurement)
-	return product.Rehydrate(product.SKU(r.sku), r.description, classification, source, profile, r.version)
+	return product.RehydrateWithPackaging(product.SKU(r.sku), r.description, classification, source, profile, packaging, r.version)
 }
 
 func optString(s string) *string {
@@ -146,15 +147,34 @@ func rowOf(p *product.Product) productRow {
 
 // Get implements ports.ProductRepository.
 func (r *ProductRepo) Get(ctx context.Context, sku product.SKU) (*product.Product, error) {
+	q := queryFor(ctx, r.pool)
 	var row productRow
-	err := queryFor(ctx, r.pool).QueryRow(ctx, `SELECT `+productColumns+` FROM products WHERE sku = $1`, string(sku)).Scan(row.targets()...)
+	err := q.QueryRow(ctx, `SELECT `+productColumns+` FROM products WHERE sku = $1`, string(sku)).Scan(row.targets()...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, repository.ErrProductNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get product %s: %w", sku, err)
 	}
-	return row.toProduct(), nil
+	levels, err := loadPackLevels(ctx, q, []string{row.sku})
+	if err != nil {
+		return nil, err
+	}
+	return row.toProduct(hierarchyOf(levels[row.sku])), nil
+}
+
+// GetByGTIN implements ports.ProductRepository: the product holding gtin at
+// any pack level, found through the unique index on the GTIN.
+func (r *ProductRepo) GetByGTIN(ctx context.Context, gtin gs1.GTIN) (*product.Product, error) {
+	var sku string
+	err := queryFor(ctx, r.pool).QueryRow(ctx, `SELECT sku FROM product_pack_levels WHERE gtin = $1`, gtin.String()).Scan(&sku)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, repository.ErrGtinNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get product by gtin %s: %w", gtin, err)
+	}
+	return r.Get(ctx, product.SKU(sku))
 }
 
 const insertProduct = `INSERT INTO products (` + productColumns + `)
@@ -172,26 +192,32 @@ const updateProduct = `UPDATE products SET
 // existing SKU affects no row), anything else updates only the row whose
 // stored version is still loadedVersion. No affected row means another
 // writer won: repository.ErrConcurrentModification.
+//
+// The product's pack levels are saved in the same transaction (its own when
+// ctx carries none): a GTIN another SKU holds is product.ErrGtinAlreadyAssigned.
 func (r *ProductRepo) Save(ctx context.Context, p *product.Product, loadedVersion int64) error {
 	row := rowOf(p)
 	sql, args := insertProduct, row.values()
 	if loadedVersion != 0 {
 		sql, args = updateProduct, append(args, loadedVersion)
 	}
-	tag, err := queryFor(ctx, r.pool).Exec(ctx, sql, args...)
-	if err != nil {
-		return fmt.Errorf("save product %s: %w", p.SKU(), err)
-	}
-	if tag.RowsAffected() != 1 {
-		return repository.ErrConcurrentModification
-	}
-	return nil
+	return inTx(ctx, r.pool, func(q querier) error {
+		tag, err := q.Exec(ctx, sql, args...)
+		if err != nil {
+			return fmt.Errorf("save product %s: %w", p.SKU(), err)
+		}
+		if tag.RowsAffected() != 1 {
+			return repository.ErrConcurrentModification
+		}
+		return savePackLevels(ctx, q, p)
+	})
 }
 
 // List implements ports.ProductRepository: ascending SKU (byte order, the
 // column is COLLATE "C"), strictly after afterSKU.
 func (r *ProductRepo) List(ctx context.Context, filter repository.ListFilter, afterSKU product.SKU, limit int) ([]*product.Product, error) {
-	rows, err := queryFor(ctx, r.pool).Query(ctx, `SELECT `+productColumns+` FROM products
+	q := queryFor(ctx, r.pool)
+	rows, err := q.Query(ctx, `SELECT `+productColumns+` FROM products
 		WHERE sku > $1
 		  AND ($2 = '' OR $2 = ANY(handling_tags))
 		  AND ($3::boolean IS NULL OR (handling_tags IS NOT NULL) = $3::boolean)
@@ -201,16 +227,27 @@ func (r *ProductRepo) List(ctx context.Context, filter repository.ListFilter, af
 		return nil, fmt.Errorf("list products: %w", err)
 	}
 	defer rows.Close()
-	out := make([]*product.Product, 0, limit)
+	page := make([]productRow, 0, limit)
+	skus := make([]string, 0, limit)
 	for rows.Next() {
 		var row productRow
 		if err := rows.Scan(row.targets()...); err != nil {
 			return nil, fmt.Errorf("scan product: %w", err)
 		}
-		out = append(out, row.toProduct())
+		page = append(page, row)
+		skus = append(skus, row.sku)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list products: %w", err)
+	}
+	rows.Close() // release the connection before the next query on the same transaction
+	levels, err := loadPackLevels(ctx, q, skus)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*product.Product, len(page))
+	for i := range page {
+		out[i] = page[i].toProduct(hierarchyOf(levels[page[i].sku]))
 	}
 	return out, nil
 }

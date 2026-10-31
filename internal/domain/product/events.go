@@ -1,6 +1,10 @@
 package product
 
-import "time"
+import (
+	"time"
+
+	"github.com/claudioed/product-master/internal/domain/shared/gs1"
+)
 
 // Event is a domain event raised by the Product aggregate. Every event
 // carries the SKU, the aggregate version AFTER the change, and when it
@@ -76,3 +80,39 @@ type ProductMeasured struct {
 
 // EventName returns "ProductMeasured".
 func (ProductMeasured) EventName() string { return "ProductMeasured" }
+
+// ProductPackLevelDeclared is raised when a pack level is declared or one
+// of its mutable attributes changes. It carries the full level after the
+// change (ADR 0011).
+type ProductPackLevelDeclared struct {
+	Header
+	Def PackLevelDef
+}
+
+// EventName returns "ProductPackLevelDeclared".
+func (ProductPackLevelDeclared) EventName() string { return "ProductPackLevelDeclared" }
+
+// ProductPackLevelRetired is raised when a pack level is end-dated, either
+// by RetirePackLevel or because a new GTIN superseded it.
+type ProductPackLevelRetired struct {
+	Header
+	Level       PackLevel
+	GTIN        gs1.GTIN
+	EffectiveTo time.Time
+	Reason      string
+}
+
+// EventName returns "ProductPackLevelRetired".
+func (ProductPackLevelRetired) EventName() string { return "ProductPackLevelRetired" }
+
+// ProductPackLevelMeasured is raised when a pack level measurement is
+// recorded.
+type ProductPackLevelMeasured struct {
+	Header
+	Level       PackLevel
+	GTIN        gs1.GTIN
+	Measurement Measurement
+}
+
+// EventName returns "ProductPackLevelMeasured".
+func (ProductPackLevelMeasured) EventName() string { return "ProductPackLevelMeasured" }

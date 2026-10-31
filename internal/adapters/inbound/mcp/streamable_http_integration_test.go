@@ -188,8 +188,11 @@ func newStreamableHarness(t *testing.T) *sdkmcp.ClientSession {
 	seedThroughWriteUseCases(t, ctx, w)
 
 	server := inboundmcp.NewServer(inboundmcp.Deps{
-		GetProduct:   &usecases.GetProduct{Products: postgres.NewProductRepo(pool)},
-		ListProducts: &usecases.ListProducts{Products: postgres.NewProductRepo(pool)},
+		GetProduct:       &usecases.GetProduct{Products: postgres.NewProductRepo(pool)},
+		ListProducts:     &usecases.ListProducts{Products: postgres.NewProductRepo(pool)},
+		ResolveGTIN:      &usecases.ResolveGTIN{Products: postgres.NewProductRepo(pool)},
+		DeclarePackLevel: &usecases.DeclarePackLevel{Writer: w},
+		RetirePackLevel:  &usecases.RetirePackLevel{Writer: w},
 	})
 	hs := httptest.NewServer(inboundmcp.Handler(server))
 	t.Cleanup(hs.Close)
@@ -267,16 +270,18 @@ func TestStreamableHTTP_ListToolsExposesTheReadOnlyContract(t *testing.T) {
 	for _, tool := range list.Tools {
 		names[tool.Name] = true
 	}
-	for _, want := range []string{"get_product", "list_products", "get_product_classification", "get_physical_profile"} {
+	for _, want := range []string{"get_product", "list_products", "get_product_classification", "get_physical_profile", "resolve_gtin", "get_pack_levels", "declare_pack_level", "retire_pack_level"} {
 		if !names[want] {
 			t.Fatalf("tools/list must expose %q, got %v", want, names)
 		}
 	}
 	// Every tool of this surface is read-only (docs/adr/0005) and must say
-	// so, so a model host can gate writes away from this server.
+	// so, so a model host can gate writes away from this server; the two
+	// pack level tools (ADR 0011) say they are writes instead.
 	for _, tool := range list.Tools {
-		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
-			t.Fatalf("tool %s must carry ReadOnlyHint=true", tool.Name)
+		isWrite := tool.Name == "declare_pack_level" || tool.Name == "retire_pack_level"
+		if tool.Annotations == nil || tool.Annotations.ReadOnlyHint == isWrite {
+			t.Fatalf("tool %s: annotations %+v", tool.Name, tool.Annotations)
 		}
 	}
 }
