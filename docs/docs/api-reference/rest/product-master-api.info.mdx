@@ -54,7 +54,7 @@ accepted and normalised. A GTIN identifies exactly one (sku, level),
 fleet-wide, for ever. Once a level is active its content quantity never
 changes: a new quantity is a new GTIN at that level (declaring it end-dates
 the old level, which is kept and still resolvable). `PUT` declarations
-stay idempotent; `POST .../{level}:retire` is idempotent too (retiring a
+stay idempotent; `POST .../{level}/retirements` is idempotent too (retiring a
 retired level changes nothing).
 
 

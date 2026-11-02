@@ -123,7 +123,7 @@ func TestBuildServer_WiresEveryUseCase(t *testing.T) {
 	products, ob, processed := memory.NewProductRepo(), memory.NewOutboxRepo(), memory.NewProcessedEventRepo()
 	ad := adapters{
 		products: products, outbox: ob, outboxStore: ob, processed: processed,
-		uow: memory.NewUnitOfWork(products, ob, processed),
+		uow: memory.NewUnitOfWork(products, ob, processed), idempotency: memory.NewIdempotencyStore(),
 	}
 	s := buildServer(ad, nil, nil, nil)
 	if s.RegisterProduct == nil || s.ClassifyProduct == nil || s.DeclareDimensions == nil ||

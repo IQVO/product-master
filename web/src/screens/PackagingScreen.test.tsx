@@ -190,9 +190,9 @@ describe("declaring a pack level", () => {
 });
 
 describe("retiring a pack level", () => {
-  it("confirms, POSTs :retire with the reason, and refreshes", async () => {
+  it("confirms, POSTs /retirements with the reason, and refreshes", async () => {
     const api = routes({
-      "POST /products/SKU-1/pack-levels/CASE:retire": json({ sku: "SKU-1", version: 4, ...CASE_LEVEL, active: false, effectiveTo: "2026-10-06T21:01:00Z" }),
+      "POST /products/SKU-1/pack-levels/CASE/retirements": json({ sku: "SKU-1", version: 4, ...CASE_LEVEL, active: false, effectiveTo: "2026-10-06T21:01:00Z" }),
     });
     mount();
     await screen.findByRole("table");
@@ -203,13 +203,13 @@ describe("retiring a pack level", () => {
     await user.type(f.getByLabelText("Reason"), "discontinued");
     await user.click(f.getByRole("button", { name: "Retire CASE" }));
     expect(await screen.findByText(/Case of 12 eaches \(24006381333935\) retired \(version 4\)/)).toBeInTheDocument();
-    expect(api.to("POST /products/SKU-1/pack-levels/CASE:retire")[0].body).toEqual({ reason: "discontinued" });
+    expect(api.to("POST /products/SKU-1/pack-levels/CASE/retirements")[0].body).toEqual({ reason: "discontinued" });
     await waitFor(() => expect(api.to("GET /products/SKU-1/pack-levels")).toHaveLength(2));
   });
 
   it("sends no body when no reason is given, and Cancel closes the panel", async () => {
     const api = routes({
-      "POST /products/SKU-1/pack-levels/EACH:retire": json({ sku: "SKU-1", version: 4, ...EACH_LEVEL, active: false }),
+      "POST /products/SKU-1/pack-levels/EACH/retirements": json({ sku: "SKU-1", version: 4, ...EACH_LEVEL, active: false }),
     });
     mount();
     await screen.findByRole("table");
@@ -220,12 +220,12 @@ describe("retiring a pack level", () => {
     await user.click(screen.getByRole("button", { name: "Retire EACH 04006381333931" }));
     await user.click(form("Retire EACH").getByRole("button", { name: "Retire EACH" }));
     await screen.findByText(/retired \(version 4\)/);
-    expect(api.to("POST /products/SKU-1/pack-levels/EACH:retire")[0].body).toBeUndefined();
+    expect(api.to("POST /products/SKU-1/pack-levels/EACH/retirements")[0].body).toBeUndefined();
   });
 
   it("shows a concurrent-modification conflict with what to do", async () => {
     routes({
-      "POST /products/SKU-1/pack-levels/CASE:retire": problem(409, "concurrent-modification", "The resource was modified by another request", "concurrent modification"),
+      "POST /products/SKU-1/pack-levels/CASE/retirements": problem(409, "concurrent-modification", "The resource was modified by another request", "concurrent modification"),
     });
     mount();
     await screen.findByRole("table");
@@ -238,7 +238,7 @@ describe("retiring a pack level", () => {
   });
 
   it("explains pack-level-not-found", async () => {
-    routes({ "POST /products/SKU-1/pack-levels/CASE:retire": problem(404, "pack-level-not-found", "Pack level not found", "pack level not found: CASE") });
+    routes({ "POST /products/SKU-1/pack-levels/CASE/retirements": problem(404, "pack-level-not-found", "Pack level not found", "pack level not found: CASE") });
     mount();
     await screen.findByRole("table");
     const user = userEvent.setup();

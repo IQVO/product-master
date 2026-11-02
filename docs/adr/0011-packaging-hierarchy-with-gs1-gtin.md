@@ -131,7 +131,7 @@ All additive; existing routes and tools are untouched.
   `active`, `effectiveFrom`, `effectiveTo?`. The path GTIN is normalised to 14
   digits before the lookup; an invalid one is `ErrInvalidGTIN` (problem+json).
 - `PUT /products/{sku}/pack-levels/{level}` runs `DeclarePackLevel`.
-- `POST /products/{sku}/pack-levels/{level}:retire` runs `RetirePackLevel`.
+- `POST /products/{sku}/pack-levels/{level}/retirements` runs `RetirePackLevel`.
 - `GET /products/{sku}/pack-levels` lists the levels, retired ones included.
 - MCP tools: `resolve_gtin`, `get_pack_levels`, `declare_pack_level`,
   `retire_pack_level`. The first two are read-only. The last two write, which

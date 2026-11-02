@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/claudioed/product-master/internal/adapters/inbound/http/page"
 )
 
 func TestListProducts_PagesAndFilters(t *testing.T) {
@@ -15,10 +17,10 @@ func TestListProducts_PagesAndFilters(t *testing.T) {
 
 	r := f.mustDo(t, http.MethodGet, "/products?limit=1", "", http.StatusOK)
 	items := r.body["items"].([]any)
-	if len(items) != 1 || items[0].(map[string]any)["sku"] != "SKU-1" || r.body["nextCursor"] != "U0tVLTE" {
+	if len(items) != 1 || items[0].(map[string]any)["sku"] != "SKU-1" || r.body["nextCursor"] != page.Encode(page.Position{Sort: "SKU-1", ID: "SKU-1"}) {
 		t.Fatalf("page 1 = %s", r.raw)
 	}
-	r = f.mustDo(t, http.MethodGet, "/products?limit=5&cursor=U0tVLTE", "", http.StatusOK)
+	r = f.mustDo(t, http.MethodGet, "/products?limit=5&cursor="+page.Encode(page.Position{Sort: "SKU-1", ID: "SKU-1"}), "", http.StatusOK)
 	if items = r.body["items"].([]any); len(items) != 2 || r.body["nextCursor"] != nil {
 		t.Fatalf("page 2 = %s", r.raw)
 	}
@@ -45,9 +47,16 @@ func TestListProducts_EmptyIsAnEmptyArray(t *testing.T) {
 
 func TestListProducts_BadQueriesAre400(t *testing.T) {
 	f := newFixture(t)
-	for _, q := range []string{"limit=0", "limit=501", "limit=-1", "limit=x", "cursor=!!", "handlingTag=Sharp", "classified=yes"} {
+	cases := map[string]string{
+		"limit=0": "invalid-limit", "limit=501": "invalid-limit", "limit=-1": "invalid-limit", "limit=x": "invalid-limit",
+		"limit=": "invalid-limit", "limit=1&limit=2": "invalid-limit",
+		"cursor=!!": "invalid-cursor", "cursor=a&cursor=b": "invalid-cursor",
+		"handlingTag=Sharp": "malformed-request", "classified=yes": "malformed-request",
+		"after=SKU-1": "unknown-query-parameter", "offset=1": "unknown-query-parameter", "nextToken=x": "unknown-query-parameter",
+	}
+	for q, slug := range cases {
 		t.Run(q, func(t *testing.T) {
-			expectProblem(t, f.do(t, http.MethodGet, "/products?"+q, ""), http.StatusBadRequest, "malformed-request")
+			expectProblem(t, f.do(t, http.MethodGet, "/products?"+q, ""), http.StatusBadRequest, slug)
 		})
 	}
 	f.repo.listErr = errDB

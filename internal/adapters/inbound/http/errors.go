@@ -26,16 +26,23 @@ type problem struct {
 
 var internalProblem = problem{http.StatusInternalServerError, "internal-error", "Internal server error"}
 
+// malformedRequestProblem is the shared problem of every typed error the
+// adapters and the domain reject as a malformed request.
+var malformedRequestProblem = problem{http.StatusBadRequest, "malformed-request", "Malformed request"}
+
 // problemCatalogue maps every typed error to its problem, in match order.
 // Slugs are the catalogue of .claude/rules/rest-api.md.
 var problemCatalogue = []struct {
 	err error
 	p   problem
 }{
-	{errMalformedRequest, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
-	{usecases.ErrInvalidListQuery, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
-	{product.ErrMissingMeasuredAt, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
-	{product.ErrInvalidDeviceID, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
+	{errMalformedRequest, malformedRequestProblem},
+	{errInvalidLimit, problem{http.StatusBadRequest, "invalid-limit", "Invalid limit"}},
+	{errInvalidCursor, problem{http.StatusBadRequest, "invalid-cursor", "Invalid cursor"}},
+	{errUnknownQueryParameter, problem{http.StatusBadRequest, "unknown-query-parameter", "Unknown query parameter"}},
+	{usecases.ErrInvalidListQuery, malformedRequestProblem},
+	{product.ErrMissingMeasuredAt, malformedRequestProblem},
+	{product.ErrInvalidDeviceID, malformedRequestProblem},
 	{product.ErrInvalidSKU, problem{http.StatusBadRequest, "invalid-sku", "SKU is invalid"}},
 	{product.ErrInvalidDescription, problem{http.StatusBadRequest, "invalid-description", "Description is invalid"}},
 	{product.ErrNoHandlingTags, problem{http.StatusBadRequest, "no-handling-tags", "Classification requires at least one handling tag"}},

@@ -35,12 +35,13 @@ Feature: List products
   Scenario Outline: Malformed list queries are rejected
     When I GET "/products?<query>"
     Then the response status is 400
-    And the problem type is "malformed-request"
+    And the problem type is "<problem>"
 
     Examples:
-      | query             |
-      | limit=0           |
-      | limit=501         |
-      | cursor=%21%21     |
-      | handlingTag=Sharp |
-      | classified=maybe  |
+      | query             | problem                 |
+      | limit=0           | invalid-limit           |
+      | limit=501         | invalid-limit           |
+      | cursor=%21%21     | invalid-cursor          |
+      | after=SKU-1       | unknown-query-parameter |
+      | handlingTag=Sharp | malformed-request       |
+      | classified=maybe  | malformed-request       |

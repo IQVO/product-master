@@ -44,7 +44,7 @@ payload carries `sku` and the aggregate `version` after the change.
 | `ProductDimensionsDeclared` | `PUT /products/{sku}/dimensions/declared` | full profile: `sku`, `declared`?, `measured`?, `effective`?, `effective_source`, `discrepancy`, `version` |
 | `ProductMeasured` | `PUT /products/{sku}/dimensions/measured` | the same full profile |
 | `ProductPackLevelDeclared` | `PUT /products/{sku}/pack-levels/{level}` (new level, changed flags or declared dimensions, or a new GTIN) | `sku`, `level`, `gtin`, `child_gtin`?, `qty_of_child`?, `units_per_pack`, `dims`?, `is_orderable`, `is_despatch_unit`, `effective_from`, `version` |
-| `ProductPackLevelRetired` | `POST /products/{sku}/pack-levels/{level}:retire`, or `PUT` of a new GTIN at an active level (reason `superseded`, one `version` before the matching `Declared`) | `sku`, `level`, `gtin`, `effective_to`, `reason`, `version` |
+| `ProductPackLevelRetired` | `POST /products/{sku}/pack-levels/{level}/retirements`, or `PUT` of a new GTIN at an active level (reason `superseded`, one `version` before the matching `Declared`) | `sku`, `level`, `gtin`, `effective_to`, `reason`, `version` |
 | `ProductPackLevelMeasured` | `PUT /products/{sku}/pack-levels/{level}/measured` | `sku`, `level`, `gtin`, `dims`, `measured_at`, `device_id`?, `version` |
 
 `?` marks a field omitted when unset. `handling_tags` is in the stable order

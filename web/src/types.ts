@@ -122,6 +122,8 @@ export interface PackLevelList {
   sku: string;
   version: number;
   items: PackLevelDefinition[];
+  /** Opaque cursor of the next page; absent on the last page. */
+  nextCursor?: string;
 }
 
 /** The body of PUT /products/{sku}/pack-levels/{level}. */

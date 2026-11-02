@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
+
+	"github.com/claudioed/product-master/internal/adapters/inbound/http/page"
 
 	"github.com/go-chi/chi/v5"
 
@@ -201,32 +202,39 @@ func (s *Server) handleGetPhysicalProfile(w http.ResponseWriter, r *http.Request
 }
 
 // handleListProducts backs GET /products?limit=&cursor=&handlingTag=&classified=.
+// The wire cursor is the fleet keyset cursor (page package); the use case
+// pages by SKU, so the adapter translates in both directions.
 func (s *Server) handleListProducts(w http.ResponseWriter, r *http.Request) {
-	q, err := parseListQuery(r.URL.Query())
+	limit, after, err := pageParams(r, "handlingTag", "classified")
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	page, err := s.ListProducts.Handle(r.Context(), q)
+	q, err := parseListQuery(r.URL.Query(), limit, after)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	out := productPageResponse{Items: make([]productResponse, 0, len(page.Items)), NextCursor: page.NextCursor}
-	for _, p := range page.Items {
+	res, err := s.ListProducts.Handle(r.Context(), q)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	out := productPageResponse{Items: make([]productResponse, 0, len(res.Items))}
+	for _, p := range res.Items {
 		out.Items = append(out.Items, toProduct(p))
+	}
+	if len(res.Items) > 0 && res.NextCursor != "" {
+		last := string(res.Items[len(res.Items)-1].SKU())
+		out.NextCursor = page.Encode(page.Position{Sort: last, ID: last})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-func parseListQuery(values url.Values) (usecases.ListProductsQuery, error) {
-	q := usecases.ListProductsQuery{Cursor: values.Get("cursor"), HandlingTag: values.Get("handlingTag")}
-	if raw := values.Get("limit"); raw != "" {
-		limit, err := strconv.Atoi(raw)
-		if err != nil || limit == 0 {
-			return q, fmt.Errorf("%w: limit must be an integer 1..%d", usecases.ErrInvalidListQuery, usecases.MaxListLimit)
-		}
-		q.Limit = limit
+func parseListQuery(values url.Values, limit int, after *page.Position) (usecases.ListProductsQuery, error) {
+	q := usecases.ListProductsQuery{Limit: limit, HandlingTag: values.Get("handlingTag")}
+	if after != nil {
+		q.Cursor = usecases.EncodeCursor(product.SKU(after.ID))
 	}
 	if raw := values.Get("classified"); raw != "" {
 		switch raw {

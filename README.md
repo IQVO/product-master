@@ -1,5 +1,7 @@
 # product-master
 
+[![CI](https://github.com/IQVO/product-master/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/IQVO/product-master/actions/workflows/ci.yml?query=branch%3Adevelop) [![coverage gate](https://img.shields.io/badge/coverage%20gate-90%25-brightgreen)](https://github.com/IQVO/product-master/blob/develop/Makefile) [![Go](https://img.shields.io/badge/go-1.27.3-00ADD8?logo=go&logoColor=white)](https://github.com/IQVO/product-master/blob/develop/go.mod) [![release](https://img.shields.io/github/v/release/IQVO/product-master?sort=semver)](https://github.com/IQVO/product-master/releases) [![docs](https://img.shields.io/badge/docs-iqvo.github.io-blue)](https://iqvo.github.io/product-master/) [![license](https://img.shields.io/badge/license-MIT-blue)](https://github.com/IQVO/product-master/blob/develop/LICENSE)
+
 Product Master is the WMS-tier bounded context of the warehouse-systems fleet
 that owns SKU-level product master data: the handling classification of a SKU
 (hazmat, fragile, temperature-sensitive, oversized, high value, DOT hazard
@@ -203,15 +205,20 @@ paths (`cmd/api` serves all but the two `/reports/*` routes, which belong to
 | GET | `/gtins/{gtin}` | ResolveGTIN (the SKU and pack level a GTIN identifies; retired ones too) |
 | GET | `/products/{sku}/pack-levels` | GetProduct (pack levels, retired ones included) |
 | PUT | `/products/{sku}/pack-levels/{level}` | DeclarePackLevel (`EACH`, `INNER`, `CASE`, `PALLET`) |
-| POST | `/products/{sku}/pack-levels/{level}:retire` | RetirePackLevel (idempotent) |
+| POST | `/products/{sku}/pack-levels/{level}/retirements` | RetirePackLevel (idempotent) |
 | PUT | `/products/{sku}/pack-levels/{level}/measured` | RecordPackLevelMeasurement |
 | GET | `/healthz`, `/readyz` | liveness; readiness (drain gate + Postgres + Kafka) |
 | GET | `/metrics` | Prometheus scrape |
 | GET | `/reports/master-data-quality`, `/reports/freshness` | analytics — served by `cmd/product-reports`, not `cmd/api` |
 
-Writes are PUT-shaped against idempotent resource paths; the domain's
-idempotent semantics (register, declare, retire) make retries safe without an
-`Idempotency-Key` header. Problem types are catalogued in
+Writes are PUT-shaped against idempotent resource paths. The one `POST`
+(`/retirements`) sits behind the `Idempotency-Key` middleware (ADR 0013): a
+missing key is `400 idempotency-key-required`, a malformed one `400
+idempotency-key-invalid`, the same key with another method, path or body `409
+idempotency-key-reused`, and a replay carries `Idempotency-Replayed: true`.
+Collections (`GET /products`, `GET /products/{sku}/pack-levels`) answer
+`{items,nextCursor}` with `limit` and `cursor`; any other query parameter is
+`400 unknown-query-parameter`. Problem types are catalogued in
 [Troubleshooting](docs/docs/operations/troubleshooting.md).
 
 ### Analytics data product (Master Data Quality)

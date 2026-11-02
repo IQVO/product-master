@@ -116,7 +116,7 @@ func TestRetirePackLevel_Statuses(t *testing.T) {
 	registered(t, f, "SKU-1")
 	f.mustDo(t, http.MethodPut, "/products/SKU-1/pack-levels/EACH", eachBody, http.StatusCreated)
 	f.mustDo(t, http.MethodPut, "/products/SKU-1/pack-levels/CASE", caseBody, http.StatusCreated)
-	path := "/products/SKU-1/pack-levels/CASE:retire"
+	path := "/products/SKU-1/pack-levels/CASE/retirements"
 
 	r := f.mustDo(t, http.MethodPost, path, `{"reason":"discontinued"}`, http.StatusOK)
 	if r.body["active"] != false || r.body["effectiveTo"] != "2026-10-06T15:00:00Z" || r.body["version"] != float64(4) || r.body["gtin"] != "24006381333935" {
@@ -128,25 +128,22 @@ func TestRetirePackLevel_Statuses(t *testing.T) {
 		}
 	})
 	t.Run("the body is optional", func(t *testing.T) {
-		if r := f.mustDo(t, http.MethodPost, "/products/SKU-1/pack-levels/EACH:retire", "", http.StatusOK); r.body["version"] != float64(5) || r.body["level"] != "EACH" {
+		if r := f.mustDo(t, http.MethodPost, "/products/SKU-1/pack-levels/EACH/retirements", "", http.StatusOK); r.body["version"] != float64(5) || r.body["level"] != "EACH" {
 			t.Fatalf("body = %s", r.raw)
 		}
 	})
 	t.Run("rejections", func(t *testing.T) {
-		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/PALLET:retire", ""), http.StatusNotFound, "pack-level-not-found")
-		expectProblem(t, f.do(t, http.MethodPost, "/products/NOPE/pack-levels/CASE:retire", ""), http.StatusNotFound, "product-not-found")
-		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/BOX:retire", ""), http.StatusBadRequest, "invalid-pack-level")
-		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/PALLET:retire", `{"reason":""`), http.StatusBadRequest, "malformed-request")
-		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/PALLET:retire", `{"why":"x"}`), http.StatusBadRequest, "malformed-request")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/PALLET/retirements", ""), http.StatusNotFound, "pack-level-not-found")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/NOPE/pack-levels/CASE/retirements", ""), http.StatusNotFound, "product-not-found")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/BOX/retirements", ""), http.StatusBadRequest, "invalid-pack-level")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/PALLET/retirements", `{"reason":""`), http.StatusBadRequest, "malformed-request")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/PALLET/retirements", `{"why":"x"}`), http.StatusBadRequest, "malformed-request")
 		long := make([]byte, 201)
 		for i := range long {
 			long[i] = 'x'
 		}
-		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/CASE:retire", `{"reason":"`+string(long)+`"}`), http.StatusBadRequest, "invalid-reason")
-		expectProblem(t, f.do(t, http.MethodPost, "/products/bad%20sku/pack-levels/CASE:retire", ""), http.StatusBadRequest, "invalid-sku")
-	})
-	t.Run("PUT keeps routing to declare, not to retire", func(t *testing.T) {
-		expectProblem(t, f.do(t, http.MethodPut, "/products/SKU-1/pack-levels/CASE:retire", eachBody), http.StatusBadRequest, "invalid-pack-level")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/SKU-1/pack-levels/CASE/retirements", `{"reason":"`+string(long)+`"}`), http.StatusBadRequest, "invalid-reason")
+		expectProblem(t, f.do(t, http.MethodPost, "/products/bad%20sku/pack-levels/CASE/retirements", ""), http.StatusBadRequest, "invalid-sku")
 	})
 }
 
@@ -227,7 +224,7 @@ func TestListPackLevels_Statuses(t *testing.T) {
 
 func TestPackLevelRoutesAllowCORSPreflightForPost(t *testing.T) {
 	f := newFixture(t)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodOptions, f.server.URL+"/products/SKU-1/pack-levels/CASE:retire", http.NoBody)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodOptions, f.server.URL+"/products/SKU-1/pack-levels/CASE/retirements", http.NoBody)
 	if err != nil {
 		t.Fatal(err)
 	}

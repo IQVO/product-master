@@ -82,13 +82,17 @@ All errors are RFC 7807 documents with `type` =
 | `409 gtin-already-assigned` | The GTIN already identifies another SKU's level, another level of this SKU, or a retired level (GTINs are never reused). | Use the right GTIN; resolve the holder with `GET /gtins/{gtin}`. |
 | `409 pack-level-order` | A level above EACH names no `childGtin`, or the child is not an ACTIVE, lower level of this product. | Declare the lower level first. |
 | `409 pack-dimensions-below-contents` | A pack's declared or measured weight is below `qtyOfChild` times the child's known weight. | Check the units (g) and the child weight. |
+| `400 idempotency-key-required`, `idempotency-key-invalid` | A `POST .../retirements` without an `Idempotency-Key` header, or one that is not 1-128 printable ASCII characters. | Send a client-generated UUID per logical submit; a retry reuses it. |
+| `400 invalid-limit`, `invalid-cursor`, `unknown-query-parameter` | `limit` outside 1-500 (empty or repeated too), a `cursor` that is not a `nextCursor` this service issued, or a parameter the collection does not declare (`after`, `offset`, `nextToken`). | Fix the query; follow `nextCursor` verbatim. |
+| `409 idempotency-key-reused` | The `Idempotency-Key` was first used with a different method, path or body. A client bug: do not retry blindly. | Mint a new key for a genuinely different request. |
 | `409 concurrent-modification` | Two writes to the same SKU raced; the version guard rejected the loser. | Re-read the product and retry. |
 | `500 internal-error` | Unmapped error, logged as `request failed` (the detail is never returned). | Read the log line. |
 
 Not produced by this service: there is no `412` (no `If-Match`/ETag
 precondition; the version guard is internal), no `422` (validation errors are
-`400`), and no `Idempotency-Key` header. Every `PUT` is idempotent by
-itself: repeating the same request changes nothing and returns `200`. There is
+`400`, key reuse is `409`). Every `PUT` is idempotent by itself (repeating the
+same request changes nothing and returns `200`) and needs no key; the one
+`POST` is keyed. There is
 no circuit breaker either: the service has no outbound HTTP client, and Kafka
 failures are absorbed by the outbox.
 

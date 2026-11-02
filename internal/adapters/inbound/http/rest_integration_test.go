@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -141,10 +142,16 @@ var restAt = time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 
 // newRESTServer wires the real production stack over a private migrated
 // database — real Postgres repos, real UnitOfWork, real use cases, real chi
-// router — and serves it over httptest. No Idempotency-Key middleware
-// exists in this repo, so the inventory-storage idempotency shape does not
-// apply; this is the plain resource lifecycle.
+// router — and serves it over httptest, with the Postgres Idempotency-Key
+// store joined to the unit of work.
 func newRESTServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv, _ := newRESTServerPool(t)
+	return srv
+}
+
+// newRESTServerPool is newRESTServer that also returns the pool.
+func newRESTServerPool(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	pool, err := postgres.NewPool(ctx, restMigratedDB(t))
@@ -163,11 +170,14 @@ func newRESTServer(t *testing.T) *httptest.Server {
 		RecordMeasurement: &usecases.RecordMeasurement{Writer: w},
 		GetProduct:        &usecases.GetProduct{Products: postgres.NewProductRepo(pool)},
 		ListProducts:      &usecases.ListProducts{Products: postgres.NewProductRepo(pool)},
+		DeclarePackLevel:  &usecases.DeclarePackLevel{Writer: w},
+		RetirePackLevel:   &usecases.RetirePackLevel{Writer: w},
+		Idempotency:       postgres.NewIdempotencyStore(pool),
 		Readiness:         &inboundhttp.Readiness{},
 	}
 	srv := httptest.NewServer(inboundhttp.NewRouter(s))
 	t.Cleanup(srv.Close)
-	return srv
+	return srv, pool
 }
 
 // restDo issues one JSON request and returns status, headers and decoded
