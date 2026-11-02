@@ -37,8 +37,16 @@ Source of truth: `apis/openapi.yaml`. Keep this list in sync with it.
   `concurrent-modification`, `internal-error`, `dependency-unavailable`
   (503, `/readyz` only).
 - Request bodies reject unknown fields (`DisallowUnknownFields`).
-- Every write is an idempotent PUT; there is no resource-creating POST, so the
-  fleet Idempotency-Key middleware does not apply. Do not add a POST without an ADR.
+- Every write is an idempotent PUT, except `POST
+  /products/{sku}/pack-levels/{level}/retirements`, which is keyed: send
+  `Idempotency-Key` (missing = 400 `idempotency-key-required`, invalid key =
+  400 `idempotency-key-invalid`, same key + other request = 409
+  `idempotency-key-reused`; replays carry `Idempotency-Replayed: true`;
+  ADR 0013). Do not add another POST/PATCH without the middleware and an ADR.
+- Collection GETs page with `limit` + keyset `cursor`, body `{items,nextCursor}`;
+  list limit/cursor errors are `invalid-limit` / `invalid-cursor`, and an
+  undeclared query parameter is `unknown-query-parameter` (no longer
+  `malformed-request`).
 - Auth: none (fleet-wide revert 2026-09-11; `TestNoAuthMiddlewareReintroduced`).
 - The classification request/response shapes match inventory-storage's former
   endpoint (plus `classificationSource` and `version`); keep them compatible.

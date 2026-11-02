@@ -53,8 +53,10 @@ micro-frontend remote.
 9. **No auth layer on REST or MCP** (fleet-wide revert 2026-09-11): never add
    bearer/JWT/API-key middleware (`TestNoAuthMiddlewareReintroduced`). MCP is
    additive (`cmd/mcp`, read tools only).
-10. **Every write is an idempotent PUT** (no resource-creating POST, so no
-    Idempotency-Key middleware). Do not add a POST without an ADR.
+10. **Every write is an idempotent PUT, except `POST
+    /products/{sku}/pack-levels/{level}/retirements`**, which is behind the
+    `Idempotency-Key` middleware (ADR 0013). Do not add another POST/PATCH
+    without the middleware and an ADR.
 11. **An ADR comes first** for a new cross-context contract, a new attribute
     family (pack hierarchy, lot/expiry, lifecycle) or any auth. ADRs live in
     `docs/adr/`.
@@ -76,6 +78,9 @@ Run locally: `DATABASE_URL=... KAFKA_BROKERS=... go run ./cmd/api` (REST
 and `cmd/product-reports` (`:8092`) need `ANALYTICS_DATABASE_URL` (ADR 0006).
 
 ## Where things are written down (read before editing the matching area)
+
+- REST guideline adoption: ADR 0013; the Spectral `rest-guideline` ruleset
+  (`.spectral.yaml`) runs in the `api-lint` CI job.
 
 - `.claude/rules/domain-model.md`: ubiquitous language, the aggregate, events,
   use cases. `.claude/rules/rest-api.md`: endpoints and error slugs.
