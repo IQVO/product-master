@@ -24,6 +24,16 @@ const idempotencyRetention = "7 days"
 // INSERT ... ON CONFLICT DO NOTHING; the loser blocks on the unique index
 // until the winner resolves, then replays the winner's committed answer (or,
 // when the winner rolled back, runs itself).
+//
+// run executes behind SAVEPOINT handler_run. A mapped domain conflict (a lost
+// race on a unique index: 23505 -> 409) fails a statement on the server and
+// leaves the transaction ABORTED although the handler answers a truthful 4xx;
+// recording that outcome would then hit 25P02 and the client would see a 500
+// instead of the 409. Releasing the savepoint exposes the abort: the release
+// fails, ROLLBACK TO SAVEPOINT discards only the handler's partial writes and
+// heals the transaction, and the 4xx outcome is stored and committed with the
+// key row like any other. A 2xx behind a failed release is a lie (its writes
+// are gone), so it rolls everything back and fails the request.
 type IdempotencyStore struct {
 	pool *pgxpool.Pool
 }
@@ -59,9 +69,30 @@ func (s *IdempotencyStore) Execute(ctx context.Context, key, fingerprint string,
 		return s.replay(ctx, key, fingerprint)
 	}
 
+	if _, err := tx.Exec(ctx, "SAVEPOINT handler_run"); err != nil {
+		return idempotency.StoredResponse{}, false, fmt.Errorf("open handler savepoint: %w", err)
+	}
 	resp, err := run(pgtx.With(ctx, tx))
 	if err != nil {
+		// A 5xx or a panic: nothing is stored, the deferred rollback
+		// discards the key row too and the retry re-executes.
 		return idempotency.StoredResponse{}, false, err
+	}
+	if _, err := tx.Exec(ctx, "RELEASE SAVEPOINT handler_run"); err != nil {
+		// A statement inside the handler failed on the server: the
+		// transaction is aborted. Rolling back to the savepoint discards the
+		// handler's partial writes (the all-or-nothing semantics of an error
+		// answer) and returns the transaction to health; the key row, inserted
+		// before the savepoint, survives.
+		if _, rerr := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT handler_run"); rerr != nil {
+			return idempotency.StoredResponse{}, false, fmt.Errorf("heal aborted idempotent request: %w", rerr)
+		}
+		if resp.Status < 400 {
+			// A success whose writes are gone must neither be returned nor
+			// cached: fail the request (the deferred rollback drops the key
+			// row) so the same key retries the real work.
+			return idempotency.StoredResponse{}, false, fmt.Errorf("release handler savepoint after a %d answer: %w", resp.Status, err)
+		}
 	}
 	headers, err := json.Marshal(resp.Header)
 	if err != nil {
