@@ -88,7 +88,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillProductProfile,
 				Name:        "Product handling and packaging profile",
 				Description: "Composed read of one product: description and version, its handling classification (tags, temperature class, DOT hazard class; absent when unclassified), its physical profile (declared and latest measured unit dimensions, the effective ones and whether they disagree by more than 10%) and its whole packaging hierarchy, retired levels included. Identify the product with exactly one of sku or gtin; a GTIN (8, 12, 13 or 14 digits as printed on the barcode) is resolved to its SKU and the pack level it identifies is returned as identifiedBy.",
-				Tags:        []string{"product", "classification", "packaging", "read"},
+				Tags:        []string{"product", "classification", "packaging", "read", "authority:L1"},
 				InputModes:  []string{mimeTypeJSON},
 				Examples: []string{
 					`{"skill":"product_profile","arguments":{"sku":"SKU-1"}}`,
@@ -99,7 +99,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				ID:          skillDeclarePackLevel,
 				Name:        "Declare a packaging level with its GTIN",
 				Description: "Declares one packaging level (EACH, INNER, CASE or PALLET) of a registered SKU with its GTIN, exactly as the REST and MCP surfaces do, and publishes ProductPackLevelDeclared (and ProductPackLevelRetired when it supersedes a level) through the transactional outbox. Every level but EACH names childGtin (an active lower level of this SKU) and qtyOfChild (at least 2). A GTIN identifies exactly one (sku, level), fleet-wide. Idempotent: repeating an identical declaration changes nothing; declaring an active level's GTIN with another quantity is rejected (a new quantity needs a new GTIN). Rejections come back as problem answers and nothing is written.",
-				Tags:        []string{"product", "packaging", "write"},
+				Tags:        []string{"product", "packaging", "write", "authority:L3"},
 				InputModes:  []string{mimeTypeJSON},
 				Examples: []string{
 					`{"skill":"declare_pack_level","arguments":{"sku":"SKU-1","level":"EACH","gtin":"4006381333931"}}`,

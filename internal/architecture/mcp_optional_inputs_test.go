@@ -14,6 +14,10 @@ import (
 	"testing"
 )
 
+// mcpAdapterDir is where the fleet keeps the MCP inbound adapter (relative
+// to this package).
+const mcpAdapterDir = "../adapters/inbound/mcp"
+
 // optionalWordRE matches the words a jsonschema description uses to call a
 // tool input optional: "optional" (the fleet wording) and "omitted" (this
 // adapter's wording: "omitted or 0 means 100", "omitted means the first
@@ -88,7 +92,7 @@ func slicesContains(items []string, want string) bool {
 // TestMCPOptionalToolInputsCarryOmitempty enforces gap fix D16 on every
 // non-test file of the MCP inbound adapter.
 func TestMCPOptionalToolInputsCarryOmitempty(t *testing.T) {
-	files := goFilesUnder(t, "../adapters/inbound/mcp", false)
+	files := goFilesUnder(t, mcpAdapterDir, false)
 	if len(files) == 0 {
 		t.Fatal("no MCP adapter sources found; the sensor is looking in the wrong place")
 	}
