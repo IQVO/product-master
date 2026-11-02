@@ -28,7 +28,7 @@ info:
     fleet-wide, for ever. Once a level is active its content quantity never
     changes: a new quantity is a new GTIN at that level (declaring it end-dates
     the old level, which is kept and still resolvable). `PUT` declarations
-    stay idempotent; `POST .../{level}:retire` is idempotent too (retiring a
+    stay idempotent; `POST .../{level}/retirements` is idempotent too (retiring a
     retired level changes nothing).
   contact:
     name: product-master maintainers
@@ -250,6 +250,8 @@ paths:
         `product-classification-not-found` when the product exists but is not
         classified; 404 `product-not-found` when the SKU is not registered.
       tags: [Classification]
+      x-pagination-exempt: view
+      x-pagination-exempt-reason: One classification record of one product; `handlingTags` is a closed set of at most eight tags inside it, not a collection of resources.
       responses:
         "200":
           description: The classification.
@@ -473,12 +475,16 @@ paths:
       summary: List a product's pack levels
       description: |
         Every pack level the product ever declared, retired ones included,
-        lowest level first and, within a level, oldest first. A product
-        without pack levels answers an empty `items` array.
+        lowest level first and, within a level, oldest first, a page at a
+        time (`limit`, `cursor`; a response without `nextCursor` is the last
+        page). A product without pack levels answers an empty `items` array.
       tags: [Packaging]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
-          description: The product's pack levels.
+          description: One page of the product's pack levels.
           content:
             application/json:
               schema:
@@ -565,7 +571,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /products/{sku}/pack-levels/{level}:retire:
+  /products/{sku}/pack-levels/{level}/retirements:
     parameters:
       - $ref: "#/components/parameters/Sku"
       - $ref: "#/components/parameters/PackLevelPath"
@@ -581,6 +587,8 @@ paths:
         nothing; a level the product never had is 404 `pack-level-not-found`.
         Levels above the retired one are not retired by this call.
       tags: [Packaging]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: false
         content:
@@ -592,6 +600,9 @@ paths:
       responses:
         "200":
           description: The retired level.
+          headers:
+            Idempotency-Replayed:
+              $ref: "#/components/headers/IdempotencyReplayed"
           content:
             application/json:
               schema:
@@ -620,12 +631,12 @@ paths:
               examples:
                 productNotFound:
                   summary: Unknown product
-                  value: { type: https://errors.product-master.warehouse-systems.dev/product-not-found, title: Product not found, status: 404, detail: product not found, instance: /products/SKU-404/pack-levels/CASE:retire }
+                  value: { type: https://errors.product-master.warehouse-systems.dev/product-not-found, title: Product not found, status: 404, detail: product not found, instance: /products/SKU-404/pack-levels/CASE/retirements }
                 packLevelNotFound:
                   summary: The product never declared that level
-                  value: { type: https://errors.product-master.warehouse-systems.dev/pack-level-not-found, title: Pack level not found, status: 404, detail: "pack level not found: PALLET", instance: /products/SKU-1/pack-levels/PALLET:retire }
+                  value: { type: https://errors.product-master.warehouse-systems.dev/pack-level-not-found, title: Pack level not found, status: 404, detail: "pack level not found: PALLET", instance: /products/SKU-1/pack-levels/PALLET/retirements }
         "409":
-          $ref: "#/components/responses/ConcurrentModification"
+          $ref: "#/components/responses/ConflictOrKeyReused"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -827,7 +838,45 @@ paths:
           $ref: "#/components/responses/ReportStoreError"
 
 components:
+  headers:
+    IdempotencyReplayed:
+      description: "`true` when this answer is the stored response of an earlier request with the same `Idempotency-Key` (the operation did not run again). Never present on the first execution."
+      schema:
+        type: string
+        enum: ["true"]
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Client-generated key (a UUID per logical submit; a retry reuses it), 1 to 128
+        printable ASCII characters. The same key with the same method, path and body
+        replays the stored answer with `Idempotency-Replayed: true`; with a different
+        request it is 409 `idempotency-key-reused`. Missing: 400
+        `idempotency-key-required`; malformed: 400 `idempotency-key-invalid`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size, 1 to 500 (default 100).
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 500
+        default: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: The `nextCursor` value of the previous page (opaque).
+      schema:
+        type: string
     ReportFrom:
       name: from
       in: query
@@ -1005,10 +1054,16 @@ components:
               value: { type: https://errors.product-master.warehouse-systems.dev/invalid-pack-quantity, title: Pack quantity is invalid, status: 400, detail: "invalid pack quantity: qtyOfChild must be 2..1000000 for a CASE", instance: /products/SKU-1/pack-levels/CASE }
             invalidReason:
               summary: A retire reason that is empty, too long or has control characters
-              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-reason, title: Reason must be 1 to 200 characters without control characters, status: 400, detail: "reason must be 1..200 characters without control characters", instance: /products/SKU-1/pack-levels/CASE:retire }
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-reason, title: Reason must be 1 to 200 characters without control characters, status: 400, detail: "reason must be 1..200 characters without control characters", instance: /products/SKU-1/pack-levels/CASE/retirements }
             invalidDimension:
               summary: A dimension out of range
               value: { type: https://errors.product-master.warehouse-systems.dev/invalid-dimension, title: Dimension out of range, status: 400, detail: "each dimension must be 1..20000 mm", instance: /products/SKU-1/pack-levels/CASE }
+            idempotencyKeyRequired:
+              summary: POST without an Idempotency-Key header
+              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-required, title: Idempotency-Key header is required, status: 400, detail: "send an Idempotency-Key header of 1 to 128 printable ASCII characters", instance: /products/SKU-1/pack-levels/CASE/retirements }
+            idempotencyKeyInvalid:
+              summary: An Idempotency-Key that is longer than 128 characters or not printable ASCII
+              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-invalid, title: Idempotency-Key header is invalid, status: 400, detail: "the Idempotency-Key must be 1 to 128 printable ASCII characters", instance: /products/SKU-1/pack-levels/CASE/retirements }
             malformedBody:
               summary: Malformed JSON body, unknown field or missing dimension
               value: { type: https://errors.product-master.warehouse-systems.dev/malformed-request, title: Malformed request, status: 400, detail: request body is not valid JSON for this operation, instance: /products/SKU-1/pack-levels/CASE }
@@ -1049,6 +1104,19 @@ components:
             status: 404
             detail: product not found
             instance: /products/SKU-UNKNOWN
+    ConflictOrKeyReused:
+      description: Another request changed the product between this request's read and write (`concurrent-modification`), or the `Idempotency-Key` was already used with a different request (`idempotency-key-reused`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            concurrentModification:
+              summary: Optimistic-concurrency conflict
+              value: { type: https://errors.product-master.warehouse-systems.dev/concurrent-modification, title: The resource was modified by another request; re-fetch the latest version and retry, status: 409, detail: concurrent modification, instance: /products/SKU-1/pack-levels/CASE/retirements }
+            idempotencyKeyReused:
+              summary: Same key, different request
+              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-reused, title: Idempotency-Key was already used with a different request, status: 409, detail: "the Idempotency-Key was first used with a different method, path or body", instance: /products/SKU-1/pack-levels/CASE/retirements }
     ConcurrentModification:
       description: Another request changed the product between this request's read and write; re-fetch and retry.
       content:
@@ -1214,6 +1282,9 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/PackLevelDefinition" }
+        nextCursor:
+          type: string
+          description: Opaque cursor for the next page; absent on the last page.
     GtinResolution:
       type: object
       required: [gtin, sku, level, unitsPerPack, active, effectiveFrom]
