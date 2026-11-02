@@ -287,7 +287,7 @@ func (w *world) iListProductsWithQuery(query string) error {
 func (w *world) iListTheNextPage() error {
 	cursor, ok, err := w.field("nextCursor")
 	if err != nil || !ok {
-		return fmt.Errorf("no nextCursor in %s (%v)", w.body, err)
+		return fmt.Errorf("no nextCursor in %s (%w)", w.body, err)
 	}
 	return w.iGET("/products?" + w.listQuery + "&cursor=" + fmt.Sprint(cursor))
 }
