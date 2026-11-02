@@ -40,7 +40,7 @@ in the last column.
 | **Units per pack** | The direct factor from a pack level to eaches (1 for EACH), stored, not recomputed by chaining. Eaches are the ledger unit; a bare quantity never means cases. | `PackLevelDef.UnitsPerPack()` | REST `unitsPerPack`, event `units_per_pack` |
 | **Quantity of child** | How many packs of the child level make one of this level (at least 2). | `PackLevelDef.QtyOfChild()` | REST `qtyOfChild` |
 | **Supersede** | Declaring a new GTIN at a level that is active: the old level is end-dated (`superseded`) and kept, the new one starts. The only way to change a content quantity. | `DeclarePackLevel` | `ProductPackLevelRetired` then `ProductPackLevelDeclared` |
-| **Retire** | End-date the active level (`effectiveTo`); the GTIN keeps resolving, inactive, and is never reassigned. | `RetirePackLevel` | REST `POST ...:retire` |
+| **Retire** | End-date the active level (`effectiveTo`); the GTIN keeps resolving, inactive, and is never reassigned. | `RetirePackLevel` | REST `POST .../retirements` |
 | **Local copy** | A downstream context's own table of this context's facts, fed by events and guarded by `version`. | (in the consumers) | ADR 0001, ADR 0003 stage D |
 | **Unit of work** | One atomic transaction around load, command, guarded save and outbox insert. | `ports.UnitOfWork` | |
 | **Outbox** | The table events wait in until the relay publishes them. | `outbox_events`, `ports.OutboxRepository`, `outbox.Relay` | |

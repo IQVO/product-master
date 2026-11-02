@@ -17,10 +17,17 @@ sidebar_position: 1
 
 - **Every write is idempotent.** Repeating a request with the same body
   changes nothing, bumps no version and publishes no event. Every write is a
-  `PUT`, except `POST /products/{sku}/pack-levels/{level}:retire` (ADR 0011),
-  which is an action on an existing level and idempotent too: retiring a
-  retired level changes nothing. There is no resource-creating `POST`, so the
-  fleet `Idempotency-Key` middleware does not apply.
+  `PUT`, except `POST /products/{sku}/pack-levels/{level}/retirements` (ADR 0011),
+  which records the act as a noun and is idempotent too: retiring a retired
+  level changes nothing. It sits behind the fleet `Idempotency-Key`
+  middleware (ADR 0013): the header is required (`400
+  idempotency-key-required` / `idempotency-key-invalid`), a replay carries
+  `Idempotency-Replayed: true`, and the same key with a different request is
+  `409 idempotency-key-reused`.
+- **Collections are keyset-paged.** `GET /products` and
+  `GET /products/{sku}/pack-levels` take `limit` (1-500, default 100) and
+  `cursor` and answer `{items,nextCursor}`; `400 invalid-limit`,
+  `invalid-cursor` and `unknown-query-parameter` are the paging problems.
 - **Register first.** `PUT /products/{sku}` must succeed before the
   classification or dimension endpoints accept the SKU; otherwise they answer
   `404 product-not-found`.

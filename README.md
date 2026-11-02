@@ -205,15 +205,20 @@ paths (`cmd/api` serves all but the two `/reports/*` routes, which belong to
 | GET | `/gtins/{gtin}` | ResolveGTIN (the SKU and pack level a GTIN identifies; retired ones too) |
 | GET | `/products/{sku}/pack-levels` | GetProduct (pack levels, retired ones included) |
 | PUT | `/products/{sku}/pack-levels/{level}` | DeclarePackLevel (`EACH`, `INNER`, `CASE`, `PALLET`) |
-| POST | `/products/{sku}/pack-levels/{level}:retire` | RetirePackLevel (idempotent) |
+| POST | `/products/{sku}/pack-levels/{level}/retirements` | RetirePackLevel (idempotent) |
 | PUT | `/products/{sku}/pack-levels/{level}/measured` | RecordPackLevelMeasurement |
 | GET | `/healthz`, `/readyz` | liveness; readiness (drain gate + Postgres + Kafka) |
 | GET | `/metrics` | Prometheus scrape |
 | GET | `/reports/master-data-quality`, `/reports/freshness` | analytics — served by `cmd/product-reports`, not `cmd/api` |
 
-Writes are PUT-shaped against idempotent resource paths; the domain's
-idempotent semantics (register, declare, retire) make retries safe without an
-`Idempotency-Key` header. Problem types are catalogued in
+Writes are PUT-shaped against idempotent resource paths. The one `POST`
+(`/retirements`) sits behind the `Idempotency-Key` middleware (ADR 0013): a
+missing key is `400 idempotency-key-required`, a malformed one `400
+idempotency-key-invalid`, the same key with another method, path or body `409
+idempotency-key-reused`, and a replay carries `Idempotency-Replayed: true`.
+Collections (`GET /products`, `GET /products/{sku}/pack-levels`) answer
+`{items,nextCursor}` with `limit` and `cursor`; any other query parameter is
+`400 unknown-query-parameter`. Problem types are catalogued in
 [Troubleshooting](docs/docs/operations/troubleshooting.md).
 
 ### Analytics data product (Master Data Quality)

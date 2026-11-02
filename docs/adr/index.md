@@ -26,6 +26,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0010](./0010-postgres-and-kafka-are-the-only-runtime.md) | Postgres and Kafka are the only runtime (no in-memory mode, no log sink, real `/readyz`) | Accepted (2026-10-19) |
 | [0011](./0011-packaging-hierarchy-with-gs1-gtin.md) | Packaging hierarchy with GS1 GTIN; eaches are the ledger unit | Proposed (2026-10-23); would amend 0005 (two MCP write tools) |
 | [0012](./0012-a2a-inbound-adapter.md) | A2A inbound adapter (third driving adapter): `product_profile` (read) and `declare_pack_level` (write), delegation only | Accepted (2026-10-29); additive |
+| [0013](./0013-adopt-the-fleet-rest-api-guideline.md) | Adopt the fleet REST API guideline: noun route for retirement, `Idempotency-Key` on the one POST (409 reuse, `Idempotency-Replayed`), keyset-paged collections | Accepted (2026-11-01); breaking |
 
 ## Where each decision lives in the code
 
@@ -43,5 +44,6 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | 0010 | `cmd/api/{config,adapters,relay,main}.go`, `cmd/mcp/main.go`, `cmd/product-projector/main.go`, `internal/adapters/inbound/http/readiness.go`, `internal/adapters/outbound/kafka/health.go`, `internal/architecture/runtime_no_memory_fitness_test.go`, `charts/product-master/templates/_helpers.tpl` |
 | 0011 | not built yet (Proposed): `internal/domain/product` (`PackagingHierarchy`), `apis/openapi.yaml`, `apis/asyncapi.yaml` |
 | 0012 | `cmd/a2a`, `internal/adapters/inbound/a2a`, `charts/product-master/templates/a2a-*.yaml` |
+| 0013 | `internal/adapters/inbound/http/{idempotency,paging,server}.go`, `internal/adapters/inbound/http/page`, `internal/adapters/outbound/postgres/idempotency_store.go`, `internal/adapters/outbound/postgres/migrations/0003_idempotency_keys.up.sql`, `.spectral.yaml` |
 
 Back to the [documentation](/docs/intro).

@@ -147,6 +147,11 @@ const sidebars: SidebarsConfig = {
           label: '0012 A2A inbound adapter',
           href: '/docs/adr/0012-a2a-inbound-adapter',
         },
+        {
+          type: 'link',
+          label: '0013 Adopt the fleet REST API guideline',
+          href: '/docs/adr/0013-adopt-the-fleet-rest-api-guideline',
+        },
       ],
     },
   ],
