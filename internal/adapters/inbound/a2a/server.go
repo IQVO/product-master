@@ -43,6 +43,9 @@ type Config struct {
 	Version  string
 }
 
+// mimeTypeJSON is the A2A content type every skill speaks.
+const mimeTypeJSON = "application/json"
+
 // Deps is everything the A2A skills need, injected by the composition root.
 // It carries the SAME use cases the REST and MCP adapters use: the two reads
 // behind GET /products/{sku} and GET /gtins/{gtin}, and the one write the MCP
@@ -77,8 +80,8 @@ func Card(cfg Config) *a2a.AgentCard {
 		SupportedInterfaces: []*a2a.AgentInterface{
 			a2a.NewAgentInterface(cfg.AgentURL, a2a.TransportProtocolJSONRPC),
 		},
-		DefaultInputModes:  []string{"application/json", "text/plain"},
-		DefaultOutputModes: []string{"application/json", "text/plain"},
+		DefaultInputModes:  []string{mimeTypeJSON, "text/plain"},
+		DefaultOutputModes: []string{mimeTypeJSON, "text/plain"},
 		Capabilities:       a2a.AgentCapabilities{Streaming: false},
 		Skills: []a2a.AgentSkill{
 			{
@@ -86,7 +89,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				Name:        "Product handling and packaging profile",
 				Description: "Composed read of one product: description and version, its handling classification (tags, temperature class, DOT hazard class; absent when unclassified), its physical profile (declared and latest measured unit dimensions, the effective ones and whether they disagree by more than 10%) and its whole packaging hierarchy, retired levels included. Identify the product with exactly one of sku or gtin; a GTIN (8, 12, 13 or 14 digits as printed on the barcode) is resolved to its SKU and the pack level it identifies is returned as identifiedBy.",
 				Tags:        []string{"product", "classification", "packaging", "read"},
-				InputModes:  []string{"application/json"},
+				InputModes:  []string{mimeTypeJSON},
 				Examples: []string{
 					`{"skill":"product_profile","arguments":{"sku":"SKU-1"}}`,
 					`{"skill":"product_profile","arguments":{"gtin":"4006381333931"}}`,
@@ -97,7 +100,7 @@ func Card(cfg Config) *a2a.AgentCard {
 				Name:        "Declare a packaging level with its GTIN",
 				Description: "Declares one packaging level (EACH, INNER, CASE or PALLET) of a registered SKU with its GTIN, exactly as the REST and MCP surfaces do, and publishes ProductPackLevelDeclared (and ProductPackLevelRetired when it supersedes a level) through the transactional outbox. Every level but EACH names childGtin (an active lower level of this SKU) and qtyOfChild (at least 2). A GTIN identifies exactly one (sku, level), fleet-wide. Idempotent: repeating an identical declaration changes nothing; declaring an active level's GTIN with another quantity is rejected (a new quantity needs a new GTIN). Rejections come back as problem answers and nothing is written.",
 				Tags:        []string{"product", "packaging", "write"},
-				InputModes:  []string{"application/json"},
+				InputModes:  []string{mimeTypeJSON},
 				Examples: []string{
 					`{"skill":"declare_pack_level","arguments":{"sku":"SKU-1","level":"EACH","gtin":"4006381333931"}}`,
 					`{"skill":"declare_pack_level","arguments":{"sku":"SKU-1","level":"CASE","gtin":"24006381333935","childGtin":"4006381333931","qtyOfChild":12,"dims":{"lengthMm":400,"widthMm":300,"heightMm":200,"weightG":9000},"isDespatchUnit":true}}`,

@@ -56,7 +56,7 @@ from future claims and kept for inspection.
    `outbox relay: row reached the attempt cap and is excluded from future claims; ...`
    and the fields `outbox_id`, `topic`, `event_type`, `key`, `attempts`,
    `max_attempts` and `error`. A failed `Drain` returns an
-   `*outbox.SendFailure` (row id, message, attempts after the failure, cause)
+   `*outbox.SendError` (row id, message, attempts after the failure, cause)
    so the relay can do that without another query. Every failed pass still
    logs `outbox relay pass failed`, as before, and the error text keeps the
    `outbox row <id> (<type>): <cause>` wording.
