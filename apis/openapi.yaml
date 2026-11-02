@@ -117,9 +117,9 @@ paths:
                       effective: { lengthMm: 200, widthMm: 120, heightMm: 80, weightG: 1500, volumeMm3: 1920000 }
                       effectiveSource: declared
                       discrepancy: false
-                nextCursor: U0tVLTE
+                nextCursor: eyJzIjoiU0tVLTEiLCJpIjoiU0tVLTEifQ
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/PagingBadRequest"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -490,7 +490,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PackLevelList"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/PagingBadRequest"
         "404":
           $ref: "#/components/responses/ProductNotFound"
         "500":
@@ -965,8 +965,33 @@ components:
                 type: https://errors.product-master.warehouse-systems.dev/invalid-description
                 title: Description is invalid
                 status: 400
-                detail: description must be at most 200 characters
+                detail: description must be at most 200 characters without control characters
                 instance: /products/SKU-1
+    PagingBadRequest:
+      description: |
+        A paging or filter error of a collection GET: `limit` not an integer
+        from 1 to 500 (`invalid-limit`), a `cursor` that is not a page token
+        (`invalid-cursor`), a query parameter the operation does not declare
+        (`unknown-query-parameter`), a `classified` that is not `true`/`false`
+        or an unknown `handlingTag` (`malformed-request`), or an invalid SKU
+        (`invalid-sku`, pack levels).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+          examples:
+            invalidLimit:
+              summary: limit out of range
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-limit, title: Invalid limit, status: 400, detail: limit must be an integer between 1 and 500, instance: /products }
+            invalidCursor:
+              summary: cursor is not a page token
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-cursor, title: Invalid cursor, status: 400, detail: cursor is not a valid page token, instance: /products }
+            unknownQueryParameter:
+              summary: An undeclared query parameter
+              value: { type: https://errors.product-master.warehouse-systems.dev/unknown-query-parameter, title: Unknown query parameter, status: 400, detail: "unknown query parameter: \"after\" is not a parameter of this operation", instance: /products }
+            badFilter:
+              summary: classified is not true or false
+              value: { type: https://errors.product-master.warehouse-systems.dev/malformed-request, title: Malformed request, status: 400, detail: "invalid list query: classified must be true or false", instance: /products }
     InvalidClassification:
       description: The classification breaks a rule of the closed taxonomy (inventory-storage ADR 0009/0010 rules, unchanged).
       content:
@@ -1048,7 +1073,7 @@ components:
               value: { type: https://errors.product-master.warehouse-systems.dev/variable-measure-unsupported, title: Variable measure GTINs (indicator digit 9) are not supported, status: 400, detail: "variable measure GTINs (indicator digit 9) are not supported: 94006381333934", instance: /products/SKU-1/pack-levels/CASE }
             invalidPackLevel:
               summary: Not EACH, INNER, CASE or PALLET
-              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-pack-level, title: Pack level must be EACH INNER CASE or PALLET, status: 400, detail: "pack level must be EACH, INNER, CASE or PALLET: \"BOX\"", instance: /products/SKU-1/pack-levels/BOX }
+              value: { type: https://errors.product-master.warehouse-systems.dev/invalid-pack-level, title: "Pack level must be EACH, INNER, CASE or PALLET", status: 400, detail: "pack level must be EACH, INNER, CASE or PALLET: \"BOX\"", instance: /products/SKU-1/pack-levels/BOX }
             invalidPackQuantity:
               summary: qtyOfChild below 2, or a unitsPerPack that disagrees with the chain
               value: { type: https://errors.product-master.warehouse-systems.dev/invalid-pack-quantity, title: Pack quantity is invalid, status: 400, detail: "invalid pack quantity: qtyOfChild must be 2..1000000 for a CASE", instance: /products/SKU-1/pack-levels/CASE }
@@ -1060,10 +1085,10 @@ components:
               value: { type: https://errors.product-master.warehouse-systems.dev/invalid-dimension, title: Dimension out of range, status: 400, detail: "each dimension must be 1..20000 mm", instance: /products/SKU-1/pack-levels/CASE }
             idempotencyKeyRequired:
               summary: POST without an Idempotency-Key header
-              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-required, title: Idempotency-Key header is required, status: 400, detail: "send an Idempotency-Key header of 1 to 128 printable ASCII characters", instance: /products/SKU-1/pack-levels/CASE/retirements }
+              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-required, title: Idempotency-Key header is required, status: 400, detail: "send an Idempotency-Key header of 1 to 128 printable ASCII characters (a client-generated UUID per logical submit)", instance: /products/SKU-1/pack-levels/CASE/retirements }
             idempotencyKeyInvalid:
               summary: An Idempotency-Key that is longer than 128 characters or not printable ASCII
-              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-invalid, title: Idempotency-Key header is invalid, status: 400, detail: "the Idempotency-Key must be 1 to 128 printable ASCII characters", instance: /products/SKU-1/pack-levels/CASE/retirements }
+              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-invalid, title: Idempotency-Key header is invalid, status: 400, detail: "the Idempotency-Key header must be 1 to 128 printable ASCII characters", instance: /products/SKU-1/pack-levels/CASE/retirements }
             malformedBody:
               summary: Malformed JSON body, unknown field or missing dimension
               value: { type: https://errors.product-master.warehouse-systems.dev/malformed-request, title: Malformed request, status: 400, detail: request body is not valid JSON for this operation, instance: /products/SKU-1/pack-levels/CASE }
@@ -1116,7 +1141,7 @@ components:
               value: { type: https://errors.product-master.warehouse-systems.dev/concurrent-modification, title: The resource was modified by another request; re-fetch the latest version and retry, status: 409, detail: concurrent modification, instance: /products/SKU-1/pack-levels/CASE/retirements }
             idempotencyKeyReused:
               summary: Same key, different request
-              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-reused, title: Idempotency-Key was already used with a different request, status: 409, detail: "the Idempotency-Key was first used with a different method, path or body", instance: /products/SKU-1/pack-levels/CASE/retirements }
+              value: { type: https://errors.product-master.warehouse-systems.dev/idempotency-key-reused, title: Idempotency-Key was already used with a different request, status: 409, detail: "the Idempotency-Key was first used with a different method, path or body; use a new key for a different request", instance: /products/SKU-1/pack-levels/CASE/retirements }
     ConcurrentModification:
       description: Another request changed the product between this request's read and write; re-fetch and retry.
       content:
@@ -1167,7 +1192,7 @@ components:
         description:
           type: string
           maxLength: 200
-          description: Operator-facing description; may be empty.
+          description: Operator-facing description; may be empty (omitted means empty). At most 200 characters, no control characters.
     ClassifyProductRequest:
       type: object
       additionalProperties: false
@@ -1323,7 +1348,7 @@ components:
         deviceId:
           type: string
           maxLength: 64
-          description: Measuring device identifier; omit for a manual measurement.
+          description: Measuring device identifier; omit for a manual measurement. At most 64 characters, no control characters.
 
     UnitDimensions:
       type: object
@@ -1408,7 +1433,7 @@ components:
     Problem:
       type: object
       description: RFC 7807 problem document used for every non-2xx response.
-      required: [type, title, status, detail]
+      required: [type, title, status, detail, instance]
       properties:
         type: { type: string, format: uri }
         title: { type: string }
