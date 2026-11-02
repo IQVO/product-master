@@ -24,6 +24,7 @@ never runs the relay (the relay in `cmd/api` publishes what it enqueued).
 | Server name and version | `product-master-mcp` `1.0.0` | `internal/adapters/inbound/mcp/server.go` |
 | SDK | `github.com/modelcontextprotocol/go-sdk` v1.8.0 | `go.mod` |
 | Auth | none (fleet-wide); access control is the in-cluster ClusterIP Service | `cmd/mcp/main.go` |
+| Sessions | stateless ([ADR 0014](/docs/adr/0014-agent-authority-levels-and-complete-mcp-surface)): no `Mcp-Session-Id` is issued; the server answers the 2026-07-28 `server/discover` handshake and legacy `initialize` alike | `internal/adapters/inbound/mcp/server.go`, `stateless_test.go` |
 | Health | `GET /healthz` returns `{"status":"ok"}` | `cmd/mcp/router.go` |
 | Data | the OLTP database (`DATABASE_URL`, mandatory: the binary exits at boot without it, [ADR 0010](/docs/adr/0010-postgres-and-kafka-are-the-only-runtime)) | `cmd/mcp/main.go` |
 | In the kind cluster | `http://product-master-mcp.warehouse-systems.svc.cluster.local:8090/mcp`, read by warehouse-ops-agent (`PRODUCT_MASTER_MCP_ENDPOINT`) | README, warehouse-infra |
@@ -47,6 +48,15 @@ returns; they are pinned by
 unless it is one of the two allow-listed pack level tools, and on a tool count
 above 8.
 
+Every tool also declares its **agent authority level**
+([ADR 0014](/docs/adr/0014-agent-authority-levels-and-complete-mcp-surface))
+in `tools/list` `_meta` under `com.warehouse/authority`: `L1` (reads facts)
+for the six read tools, `L3` (changes state; the caller is accountable) for
+the two writes. `L2` (pure recommendation) and `L4` (autonomous write) do not
+occur in this context. The level is a declaration for callers and reviewers,
+not access control; the A2A skills carry the same levels as `authority:L1` /
+`authority:L3` tags on the Agent Card.
+
 | Tool | Annotation | Input fields | Output | Errors |
 | --- | --- | --- | --- | --- |
 | `get_product` | read-only | `sku` (string, **required**): 1..64 characters, no whitespace, control characters or `/` | `sku`, `description`, `version`, `classification` (omitted when unclassified: `handling_tags`, `temperature_class`, `dot_hazard_class`, `classification_source`), `physical_profile` (`declared`, `measured`, `effective`, `effective_source`, `discrepancy`) | `invalid-sku`, `product-not-found` |
@@ -59,6 +69,22 @@ above 8.
 | `retire_pack_level` | **write**, idempotent | `sku`, `level` (**required**); `reason` (optional, 1..200 characters; omitted means `retired`) | `sku`, `version`, `pack_level` (now `active: false`); retiring a retired level changes nothing | `invalid-sku`, `invalid-pack-level`, `invalid-reason`, `pack-level-not-found`, `product-not-found` |
 
 Field names are snake_case (the REST bodies use camelCase for the same data).
+
+## Resource
+
+`warehouse://product-master/skus/{sku}/pack-levels` — the packaging hierarchy
+of one SKU, retired levels included, the same bounded view `get_pack_levels`
+returns (JSON text, built from the same `GetProduct` read use case; ADR 0014).
+Discoverable via `resources/templates/list`; a URI outside the template is
+rejected.
+
+## Prompt
+
+`declare_pack_levels` — the operator SOP for declaring or retiring packaging
+levels: read the hierarchy first, declare bottom-up with real GTINs, respect
+quantity immutability, retire explicitly, escalate label mismatches. One
+optional typed argument (`sku`) scopes the SOP to a product. The prompt names
+tools but never calls them and writes nothing.
 
 ## Errors
 
@@ -101,8 +127,11 @@ Responses come back as `text/event-stream` (`event: message`, `data: {...}`).
 
 ## Operating notes
 
-- Run exactly one replica: sessions are held in process memory and the Service
-  has no session affinity (the chart has no HPA for `mcp`).
+- The chart still runs exactly one replica (`replicaCount: 1`). Since
+  [ADR 0014](/docs/adr/0014-agent-authority-levels-and-complete-mcp-surface)
+  the Streamable HTTP handler is stateless (no `Mcp-Session-Id`, no cross-call
+  state), so that constraint no longer comes from session affinity; the chart
+  is unchanged.
 - Give it the same `DATABASE_URL` as `cmd/api`. It runs the idempotent OLTP
   migrations on start (with `MIGRATIONS_DATABASE_URL` when set) so it can boot
   before the API on a fresh database.
