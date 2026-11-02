@@ -27,6 +27,8 @@ type adapters struct {
 	outboxStore outboxrelay.Store
 	processed   ports.ProcessedEvents
 	uow         ports.UnitOfWork
+	// idempotency stores the Idempotency-Key rows of every POST/PATCH.
+	idempotency ports.IdempotencyStore
 	// ping is the Postgres liveness check behind /readyz.
 	ping func(context.Context) error
 }
@@ -53,8 +55,9 @@ func buildServer(ad adapters, readiness *inboundhttp.Readiness, metrics http.Han
 		RecordPackLevelMeasurement: &usecases.RecordPackLevelMeasurement{Writer: w},
 		ResolveGTIN:                &usecases.ResolveGTIN{Products: ad.products},
 
-		Readiness: readiness,
-		Metrics:   metrics,
+		Idempotency: ad.idempotency,
+		Readiness:   readiness,
+		Metrics:     metrics,
 	}
 }
 
@@ -103,7 +106,8 @@ func postgresAdapters(pool *pgxpool.Pool) adapters {
 	return adapters{
 		products: postgres.NewProductRepo(pool), outbox: ob, outboxStore: ob,
 		processed: postgres.NewProcessedEventRepo(pool), uow: postgres.NewUnitOfWork(pool),
-		ping: pool.Ping,
+		idempotency: postgres.NewIdempotencyStore(pool),
+		ping:        pool.Ping,
 	}
 }
 

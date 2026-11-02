@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { retirePackLevel, toApiError } from "../api";
 import type { ApiError } from "../api";
 import { Form, FormRow, InlineSuccess, SubmitButton, TextField } from "../components/formkit";
@@ -8,7 +8,7 @@ import type { PackLevelDefinition } from "../types";
 import { PACK_PROBLEM_LEADS } from "./packagingCopy";
 
 /**
- * Confirms and sends POST /products/{sku}/pack-levels/{level}:retire. Retiring
+ * Confirms and sends POST /products/{sku}/pack-levels/{level}/retirements. Retiring
  * end-dates the level: its GTIN stays resolvable (inactive) and is never
  * assigned again, and the levels ABOVE it are not retired by this call. The
  * panel stays on screen after success so the confirmation is readable.
@@ -25,6 +25,8 @@ export function RetirePackLevelPanel({
   onRetired: () => void;
 }) {
   const [reason, setReason] = useState("");
+  // One Idempotency-Key per logical submit: a retry reuses it, new input or a success mints a new one.
+  const keyRef = useRef(crypto.randomUUID());
   const [problem, setProblem] = useState<ApiError | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -33,7 +35,8 @@ export function RetirePackLevelPanel({
     setProblem(null);
     setSaving(true);
     try {
-      const res = await retirePackLevel(sku, def.level, reason.trim() || undefined);
+      const res = await retirePackLevel(sku, def.level, reason.trim() || undefined, keyRef.current);
+      keyRef.current = crypto.randomUUID();
       setDone(`${packLabel(res.level, res.unitsPerPack)} (${res.gtin}) retired (version ${res.version}).`);
       onRetired();
     } catch (err) {
@@ -54,7 +57,10 @@ export function RetirePackLevelPanel({
         <TextField
           label="Reason"
           value={reason}
-          onChange={setReason}
+          onChange={(v) => {
+            keyRef.current = crypto.randomUUID();
+            setReason(v);
+          }}
           hint="Optional, up to 200 characters; defaults to “retired”"
         />
         {!done && <SubmitButton disabled={saving}>{saving ? "Retiring…" : `Retire ${def.level}`}</SubmitButton>}

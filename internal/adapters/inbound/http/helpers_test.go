@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,8 +87,9 @@ func newFixture(t *testing.T) *fixture {
 		RecordPackLevelMeasurement: &usecases.RecordPackLevelMeasurement{Writer: w},
 		ResolveGTIN:                &usecases.ResolveGTIN{Products: repo},
 
-		Readiness: readiness,
-		Metrics:   http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "# metrics\n") }),
+		Idempotency: memory.NewIdempotencyStore(),
+		Readiness:   readiness,
+		Metrics:     http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "# metrics\n") }),
 	}
 	srv := httptest.NewServer(inboundhttp.NewRouter(s))
 	t.Cleanup(srv.Close)
@@ -94,13 +97,27 @@ func newFixture(t *testing.T) *fixture {
 }
 
 type response struct {
+	replayed    string
 	status      int
 	contentType string
 	body        map[string]any
 	raw         string
 }
 
+var keySeq atomic.Int64
+
+// do sends the request; every POST/PATCH gets a fresh Idempotency-Key.
 func (f *fixture) do(t *testing.T, method, path, body string) response {
+	t.Helper()
+	h := map[string]string{}
+	if method == http.MethodPost || method == http.MethodPatch {
+		h["Idempotency-Key"] = fmt.Sprintf("test-key-%d", keySeq.Add(1))
+	}
+	return f.doWith(t, method, path, body, h)
+}
+
+// doWith sends the request with exactly the given extra headers.
+func (f *fixture) doWith(t *testing.T, method, path, body string, headers map[string]string) response {
 	t.Helper()
 	var reader io.Reader = http.NoBody
 	if body != "" {
@@ -111,13 +128,16 @@ func (f *fixture) do(t *testing.T, method, path, body string) response {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	out := response{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), raw: string(raw)}
+	out := response{replayed: resp.Header.Get("Idempotency-Replayed"), status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), raw: string(raw)}
 	_ = json.Unmarshal(raw, &out.body)
 	return out
 }

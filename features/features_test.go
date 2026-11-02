@@ -61,6 +61,7 @@ type world struct {
 	contentType string
 
 	listQuery string
+	keySeq    int
 }
 
 func (w *world) start() {
@@ -72,6 +73,7 @@ func (w *world) start() {
 	w.readiness = &inboundhttp.Readiness{}
 	s := &inboundhttp.Server{
 		Readiness:         w.readiness,
+		Idempotency:       memory.NewIdempotencyStore(),
 		RegisterProduct:   &usecases.RegisterProduct{Writer: writer},
 		ClassifyProduct:   &usecases.ClassifyProduct{Writer: writer},
 		DeclareDimensions: &usecases.DeclareDimensions{Writer: writer},
@@ -107,6 +109,10 @@ func (w *world) call(method, path, body string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if method == http.MethodPost || method == http.MethodPatch {
+		w.keySeq++
+		req.Header.Set("Idempotency-Key", fmt.Sprintf("bdd-key-%d", w.keySeq))
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err

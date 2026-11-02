@@ -33,6 +33,9 @@ var problemCatalogue = []struct {
 	p   problem
 }{
 	{errMalformedRequest, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
+	{errInvalidLimit, problem{http.StatusBadRequest, "invalid-limit", "Invalid limit"}},
+	{errInvalidCursor, problem{http.StatusBadRequest, "invalid-cursor", "Invalid cursor"}},
+	{errUnknownQueryParameter, problem{http.StatusBadRequest, "unknown-query-parameter", "Unknown query parameter"}},
 	{usecases.ErrInvalidListQuery, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
 	{product.ErrMissingMeasuredAt, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},
 	{product.ErrInvalidDeviceID, problem{http.StatusBadRequest, "malformed-request", "Malformed request"}},

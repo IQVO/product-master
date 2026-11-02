@@ -12,7 +12,7 @@ import (
 // It carries the SAME use cases the REST adapter uses: the reads
 // (GET /products, GET /products/{sku}, .../classification,
 // .../physical-profile, GET /gtins/{gtin}) and, since ADR 0011, exactly two
-// writes (PUT /products/{sku}/pack-levels/{level} and its :retire). The
+// writes (PUT /products/{sku}/pack-levels/{level} and its /retirements). The
 // adapter never constructs an outbound adapter itself.
 type Deps struct {
 	GetProduct   *usecases.GetProduct

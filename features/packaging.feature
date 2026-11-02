@@ -81,7 +81,7 @@ Feature: Packaging hierarchy with GS1 GTINs
 
   Scenario: A retired GTIN is never reassigned
     Given the product "SKU-2" is registered with description "Charger"
-    When I POST "/products/SKU-1/pack-levels/EACH:retire" with body '{"reason":"relabelled"}'
+    When I POST "/products/SKU-1/pack-levels/EACH/retirements" with body '{"reason":"relabelled"}'
     Then the response status is 200
     When I PUT "/products/SKU-2/pack-levels/EACH" with body '{"gtin":"4006381333931"}'
     Then the response status is 409
@@ -149,12 +149,12 @@ Feature: Packaging hierarchy with GS1 GTINs
 
   Scenario: Retiring a level keeps its GTIN resolvable
     Given "SKU-1" has a case of 12 eaches with GTIN "24006381333935"
-    When I POST "/products/SKU-1/pack-levels/CASE:retire" with body '{"reason":"discontinued"}'
+    When I POST "/products/SKU-1/pack-levels/CASE/retirements" with body '{"reason":"discontinued"}'
     Then the response status is 200
     And the response field "active" is "false"
     And the response field "version" is "4"
     And the last published "ProductPackLevelRetired" event data is '{"sku":"SKU-1","level":"CASE","gtin":"24006381333935","effective_to":"2026-10-06T15:00:00Z","reason":"discontinued","version":4}'
-    When I POST "/products/SKU-1/pack-levels/CASE:retire"
+    When I POST "/products/SKU-1/pack-levels/CASE/retirements"
     Then the response status is 200
     And the response field "version" is "4"
     And the outbox holds 4 messages
@@ -162,7 +162,7 @@ Feature: Packaging hierarchy with GS1 GTINs
     Then the response field "active" is "false"
 
   Scenario: Retiring a level the SKU never had
-    When I POST "/products/SKU-1/pack-levels/PALLET:retire"
+    When I POST "/products/SKU-1/pack-levels/PALLET/retirements"
     Then the response status is 404
     And the problem type is "pack-level-not-found"
 
