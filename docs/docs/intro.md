@@ -90,3 +90,7 @@ The domain:
 - [Downstream consumers](/docs/ecosystem/downstream-consumers) and [upstream contracts](/docs/ecosystem/upstream-contracts) (none since stage E; the retired legacy contract is kept as a record).
 - [API reference](/docs/api-reference): REST (generated from `apis/openapi.yaml`) and the event catalogue.
 - [Architecture decision records](/docs/adr): the index of every ADR with its status.
+
+:::note[Disclaimer]
+This project is a domain-driven design study. It is not associated with, endorsed by or affiliated with any company, and it uses no company's code, data, logos or trademarks. All names, figures and examples are illustrative or synthetic.
+:::
