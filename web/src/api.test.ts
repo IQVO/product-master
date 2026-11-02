@@ -126,13 +126,36 @@ describe("pack levels", () => {
     expect(call.body).toEqual({ gtin: "24006381333935", childGtin: "4006381333931", qtyOfChild: 12 });
   });
 
-  it("retires with POST to the :retire action; reason is optional", async () => {
-    const api = mockApi({ "POST /products/SKU-1/pack-levels/CASE:retire": json({ sku: "SKU-1", version: 4, ...CASE_LEVEL, active: false }) });
+  it("retires with a keyed POST to the /retirements noun; reason is optional", async () => {
+    const api = mockApi({ "POST /products/SKU-1/pack-levels/CASE/retirements": json({ sku: "SKU-1", version: 4, ...CASE_LEVEL, active: false }) });
     await retirePackLevel("SKU-1", "CASE");
     await retirePackLevel("SKU-1", "CASE", "discontinued");
-    const calls = api.to("POST /products/SKU-1/pack-levels/CASE:retire");
+    const calls = api.to("POST /products/SKU-1/pack-levels/CASE/retirements");
     expect(calls[0].body).toBeUndefined();
     expect(calls[1].body).toEqual({ reason: "discontinued" });
+    expect(calls[0].headers).toMatchObject({ "Idempotency-Key": expect.stringMatching(/^[\x20-\x7e]{1,128}$/) });
+    expect(calls[0].headers?.["Idempotency-Key"]).not.toEqual(calls[1].headers?.["Idempotency-Key"]);
+  });
+
+  it("a retry of the same submit reuses the caller's Idempotency-Key", async () => {
+    const api = mockApi({ "POST /products/SKU-1/pack-levels/CASE/retirements": json({ sku: "SKU-1", version: 4, ...CASE_LEVEL, active: false }) });
+    await retirePackLevel("SKU-1", "CASE", "x", "key-1");
+    await retirePackLevel("SKU-1", "CASE", "x", "key-1");
+    const calls = api.to("POST /products/SKU-1/pack-levels/CASE/retirements");
+    expect(calls.map((c) => c.headers?.["Idempotency-Key"])).toEqual(["key-1", "key-1"]);
+  });
+
+  it("lists pack levels by following nextCursor until it is absent", async () => {
+    const api = mockApi({
+      "GET /products/SKU-1/pack-levels": (call) =>
+        call.query.get("cursor")
+          ? json({ sku: "SKU-1", version: 4, items: [CASE_LEVEL] })
+          : json({ sku: "SKU-1", version: 4, items: [CASE_LEVEL], nextCursor: "abc" }),
+    });
+    const list = await listPackLevels("SKU-1");
+    expect(list.items).toHaveLength(2);
+    expect(api.to("GET /products/SKU-1/pack-levels")).toHaveLength(2);
+    expect(api.to("GET /products/SKU-1/pack-levels")[1].query.get("cursor")).toBe("abc");
   });
 
   it("resolves a GTIN, and a failure carries the problem code", async () => {

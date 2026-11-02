@@ -77,14 +77,21 @@ export interface ApiResult<T> {
   data: T;
 }
 
-async function request<T>(method: "GET" | "PUT" | "POST", path: string, body?: unknown): Promise<ApiResult<T>> {
+async function request<T>(
+  method: "GET" | "PUT" | "POST",
+  path: string,
+  body?: unknown,
+  idempotencyKey?: string,
+): Promise<ApiResult<T>> {
   let res: Response;
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (idempotencyKey !== undefined) headers["Idempotency-Key"] = idempotencyKey;
   try {
     res = await fetch(`${PRODUCT_MASTER_API_BASE}${path}`, {
       method,
-      ...(body === undefined
-        ? {}
-        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+      ...(Object.keys(headers).length === 0 ? {} : { headers }),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch (err) {
     throw toApiError(err);
@@ -145,10 +152,16 @@ export async function recordMeasurement(sku: string, input: MeasurementInput): P
   return (await request<PhysicalProfile>("PUT", `/products/${seg(sku)}/dimensions/measured`, input)).data;
 }
 
-/** GET /products/{sku}/pack-levels -> every level ever declared, retired ones included. */
+/** GET /products/{sku}/pack-levels -> every level ever declared, retired ones included (follows nextCursor). */
 export async function listPackLevels(sku: string): Promise<PackLevelList> {
-  const data = (await request<PackLevelList>("GET", `/products/${seg(sku)}/pack-levels`)).data;
-  return { ...data, items: data.items ?? [] };
+  let cursor: string | undefined;
+  let out: PackLevelList | undefined;
+  do {
+    const data = (await request<PackLevelList>("GET", withQuery(`/products/${seg(sku)}/pack-levels`, { cursor }))).data;
+    out = out ? { ...data, items: [...out.items, ...(data.items ?? [])] } : { ...data, items: data.items ?? [] };
+    cursor = data.nextCursor || undefined;
+  } while (cursor);
+  return out;
 }
 
 /** PUT /products/{sku}/pack-levels/{level}: 201 declared, 200 identical / changed in place / superseded. */
@@ -160,13 +173,22 @@ export function declarePackLevel(
   return request<PackLevelResource>("PUT", `/products/${seg(sku)}/pack-levels/${seg(level)}`, input);
 }
 
-/** POST /products/{sku}/pack-levels/{level}:retire -> the retired level (200, also when already retired). */
-export async function retirePackLevel(sku: string, level: PackLevel, reason?: string): Promise<PackLevelResource> {
+/**
+ * POST /products/{sku}/pack-levels/{level}/retirements -> the retired level (200, also when already
+ * retired). `idempotencyKey` is minted per user submit; a retry of the same submit reuses it.
+ */
+export async function retirePackLevel(
+  sku: string,
+  level: PackLevel,
+  reason?: string,
+  idempotencyKey: string = crypto.randomUUID(),
+): Promise<PackLevelResource> {
   return (
     await request<PackLevelResource>(
       "POST",
-      `/products/${seg(sku)}/pack-levels/${seg(level)}:retire`,
+      `/products/${seg(sku)}/pack-levels/${seg(level)}/retirements`,
       reason ? { reason } : undefined,
+      idempotencyKey,
     )
   ).data;
 }

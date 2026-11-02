@@ -111,7 +111,7 @@ are no change in every state (no event, no version bump).
 | `DeclareDimensionsCommand` | `DeclareDimensions.Handle` (`DeclareDimensions`) | `PUT /products/{sku}/dimensions/declared` |
 | `RecordMeasurementCommand` | `RecordMeasurement.Handle` (`RecordMeasurement`) | `PUT /products/{sku}/dimensions/measured` |
 | `DeclarePackLevelCommand` | `DeclarePackLevel.Handle` (`DeclarePackLevel`) | `PUT /products/{sku}/pack-levels/{level}`, MCP `declare_pack_level` |
-| `RetirePackLevelCommand` | `RetirePackLevel.Handle` (`RetirePackLevel`) | `POST /products/{sku}/pack-levels/{level}:retire`, MCP `retire_pack_level` |
+| `RetirePackLevelCommand` | `RetirePackLevel.Handle` (`RetirePackLevel`) | `POST /products/{sku}/pack-levels/{level}/retirements`, MCP `retire_pack_level` |
 | `RecordPackLevelMeasurementCommand` | `RecordPackLevelMeasurement.Handle` (`RecordPackLevelMeasurement`) | `PUT /products/{sku}/pack-levels/{level}/measured` |
 
 ### 7. Created Events

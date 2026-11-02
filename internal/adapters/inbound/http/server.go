@@ -14,6 +14,7 @@ import (
 	"github.com/riandyrn/otelchi"
 	otelchimetric "github.com/riandyrn/otelchi/metric"
 
+	"github.com/claudioed/product-master/internal/application/ports"
 	"github.com/claudioed/product-master/internal/application/usecases"
 )
 
@@ -39,6 +40,10 @@ type Server struct {
 	RecordPackLevelMeasurement *usecases.RecordPackLevelMeasurement
 	ResolveGTIN                *usecases.ResolveGTIN
 
+	// Idempotency backs the Idempotency-Key middleware of every POST/PATCH
+	// route (REST API guideline); required.
+	Idempotency ports.IdempotencyStore
+
 	// Readiness backs GET /readyz; nil means always ready.
 	Readiness *Readiness
 	// Metrics backs GET /metrics (a Prometheus handler built by cmd/);
@@ -55,8 +60,9 @@ func NewRouter(s *Server) http.Handler {
 	r.Use(otelchimetric.NewServerRequestDuration(otelchimetric.NewBaseConfig(DefaultServiceName)))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   corsAllowedOrigins(),
-		AllowedMethods:   []string{http.MethodGet, http.MethodPut, http.MethodPost},
-		AllowedHeaders:   []string{"Accept", "Content-Type"},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPut, http.MethodPost, http.MethodPatch},
+		AllowedHeaders:   []string{"Accept", "Content-Type", IdempotencyKeyHeader},
+		ExposedHeaders:   []string{IdempotencyReplayedHeader},
 		AllowCredentials: false,
 	}))
 
@@ -78,7 +84,7 @@ func NewRouter(s *Server) http.Handler {
 	r.Get("/gtins/{gtin}", s.handleResolveGTIN)
 	r.Get("/products/{sku}/pack-levels", s.handleListPackLevels)
 	r.Put("/products/{sku}/pack-levels/{level}", s.handleDeclarePackLevel)
-	r.Post("/products/{sku}/pack-levels/{level}:retire", s.handleRetirePackLevel)
+	r.With(requireIdempotencyKey(s.Idempotency)).Post("/products/{sku}/pack-levels/{level}/retirements", s.handleRetirePackLevel)
 	r.Put("/products/{sku}/pack-levels/{level}/measured", s.handleRecordPackLevelMeasurement)
 	return r
 }

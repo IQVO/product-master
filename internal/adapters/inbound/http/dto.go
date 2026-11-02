@@ -191,6 +191,8 @@ type packLevelListResponse struct {
 	SKU     string              `json:"sku"`
 	Version int64               `json:"version"`
 	Items   []packLevelResponse `json:"items"`
+	// NextCursor is absent on the last page.
+	NextCursor string `json:"nextCursor,omitempty"`
 }
 
 type gtinResponse struct {
@@ -228,15 +230,6 @@ func toPackLevel(d product.PackLevelDef) packLevelResponse {
 
 func toPackLevelResource(p *product.Product, d product.PackLevelDef) packLevelResource {
 	return packLevelResource{SKU: string(p.SKU()), Version: p.Version(), packLevelResponse: toPackLevel(d)}
-}
-
-func toPackLevelList(p *product.Product) packLevelListResponse {
-	levels := p.PackLevels().Levels()
-	out := packLevelListResponse{SKU: string(p.SKU()), Version: p.Version(), Items: make([]packLevelResponse, len(levels))}
-	for i, d := range levels {
-		out.Items[i] = toPackLevel(d)
-	}
-	return out
 }
 
 func toGTIN(res usecases.GTINResolution) gtinResponse {

@@ -42,12 +42,17 @@ func (s *Server) handleResolveGTIN(w http.ResponseWriter, r *http.Request) {
 
 // handleListPackLevels backs GET /products/{sku}/pack-levels (retired levels included).
 func (s *Server) handleListPackLevels(w http.ResponseWriter, r *http.Request) {
+	limit, after, err := pageParams(r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
 	p, err := s.loadProduct(r)
 	if err != nil {
 		writeError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toPackLevelList(p))
+	writeJSON(w, http.StatusOK, toPackLevelList(p, limit, after))
 }
 
 // handleDeclarePackLevel backs PUT /products/{sku}/pack-levels/{level}: 201
@@ -88,7 +93,7 @@ func (s *Server) handleDeclarePackLevel(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, createdOr200(res.Created), toPackLevelResource(res.Product, res.Def))
 }
 
-// handleRetirePackLevel backs POST /products/{sku}/pack-levels/{level}:retire.
+// handleRetirePackLevel backs POST /products/{sku}/pack-levels/{level}/retirements.
 // The body is optional ({"reason": "..."}); retiring a retired level answers
 // 200 with that level and changes nothing.
 func (s *Server) handleRetirePackLevel(w http.ResponseWriter, r *http.Request) {
