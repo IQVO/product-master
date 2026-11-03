@@ -74,12 +74,7 @@ func (d Deps) getPackLevels(ctx context.Context, in skuInput) (packLevelsOutput,
 	if err != nil {
 		return packLevelsOutput{}, mapError(err)
 	}
-	levels := p.PackLevels().Levels()
-	out := packLevelsOutput{SKU: string(p.SKU()), Version: p.Version(), Items: make([]packLevelView, len(levels))}
-	for i, l := range levels {
-		out.Items[i] = toPackLevel(l)
-	}
-	return out, nil
+	return packLevelsOutputFor(p), nil
 }
 
 func (d Deps) declarePackLevel(ctx context.Context, in declarePackLevelInput) (packLevelWriteOutput, error) {

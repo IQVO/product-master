@@ -73,23 +73,25 @@ type retirePackLevelInput struct {
 // the two write tools are the ONLY exceptions, are annotated as writes
 // (idempotent, closed-world) and go through the same use cases, outbox and
 // events as REST. TestToolSurface pins the set and fails the build on any
-// other write-verb name (ADR 0005 as amended by ADR 0011).
+// other write-verb name (ADR 0005 as amended by ADR 0011). Every tool also
+// declares its agent authority level in Meta under authorityMetaKey (Agentic
+// Standard v2, ADR 0014): L1 for the reads, L3 for the two writes.
 func (d Deps) registerTools(server *mcp.Server) {
-	closedWorld := false
-	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, IdempotentHint: true, OpenWorldHint: &closedWorld}
-	d.registerReadTools(server, readOnly)
-	d.registerWriteTools(server, &closedWorld)
+	d.registerReadTools(server)
+	d.registerWriteTools(server)
 }
 
 // registerReadTools registers the six read-only tools.
-func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotations) {
+func (d Deps) registerReadTools(server *mcp.Server) {
+	readOnly, closedWorld := true, false
 	addTool(server, &mcp.Tool{
 		Name: "get_product",
 		Description: "Read one product by SKU: description, version, its handling classification (omitted when unclassified) " +
 			"and its physical profile (declared and latest measured unit dimensions/weight, the effective one used by " +
 			"the warehouse, and whether they disagree by more than 10%). Read-only; fails with product-not-found for an " +
 			"unknown SKU and invalid-sku for a malformed one.",
-		Annotations: readOnly,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL1),
 	}, d.getProduct)
 
 	addTool(server, &mcp.Tool{
@@ -98,7 +100,8 @@ func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotation
 			"classification carries handling_tag and/or only classified (classified=true) or unclassified (classified=false) " +
 			"ones. Pass the returned next_cursor to get the next page; it is absent on the last page. Read-only; a bad limit, " +
 			"cursor or tag fails with malformed-request.",
-		Annotations: readOnly,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL1),
 	}, d.listProducts)
 
 	addTool(server, &mcp.Tool{
@@ -108,7 +111,8 @@ func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotation
 			"TemperatureSensitive), dot_hazard_class (1..9; only with Hazmat, omitted when not recorded), " +
 			"classification_source (native, or legacy-import while inventory-storage's value has not been confirmed here) " +
 			"and the product version. Read-only; fails with product-not-found or product-classification-not-found.",
-		Annotations: readOnly,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL1),
 	}, d.getProductClassification)
 
 	addTool(server, &mcp.Tool{
@@ -117,7 +121,8 @@ func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotation
 			"volume_mm3), the latest measurement (same fields plus measured_at and device_id), the effective dimensions " +
 			"(measured wins over declared; effective_source is measured, declared or none) and discrepancy (declared and " +
 			"measured differ by more than 10%). Read-only; fails with product-not-found for an unknown SKU.",
-		Annotations: readOnly,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL1),
 	}, d.getPhysicalProfile)
 
 	addTool(server, &mcp.Tool{
@@ -127,7 +132,8 @@ func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotation
 			"active and the effective_from / effective_to dates. A retired GTIN still resolves, with active false. Read-only; fails with " +
 			"gtin-not-found for a GTIN no pack level holds, invalid-gtin for a bad length or check digit and variable-measure-unsupported " +
 			"for indicator digit 9.",
-		Annotations: readOnly,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL1),
 	}, d.resolveGTIN)
 
 	addTool(server, &mcp.Tool{
@@ -136,7 +142,8 @@ func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotation
 			"Each item has level, gtin, child_gtin and qty_of_child (absent for EACH), units_per_pack (direct factor to eaches), declared " +
 			"dims, the latest measured dimensions, is_orderable, is_despatch_unit, active and the effective dates. Read-only; fails with " +
 			"product-not-found for an unknown SKU.",
-		Annotations: readOnly,
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL1),
 	}, d.getPackLevels)
 
 }
@@ -144,10 +151,8 @@ func (d Deps) registerReadTools(server *mcp.Server, readOnly *mcp.ToolAnnotation
 // registerWriteTools registers the two ADR 0011 write tools. Both are
 // idempotent and closed-world; only retire_pack_level is destructive (it ends
 // a GTIN for good).
-func (d Deps) registerWriteTools(server *mcp.Server, closedWorld *bool) {
-	notDestructive, destructive := false, true
-	additiveWrite := &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: &notDestructive, OpenWorldHint: closedWorld}
-	endDatingWrite := &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: &destructive, OpenWorldHint: closedWorld}
+func (d Deps) registerWriteTools(server *mcp.Server) {
+	notDestructive, destructive, closedWorld := false, true, false
 
 	addTool(server, &mcp.Tool{
 		Name: "declare_pack_level",
@@ -158,7 +163,8 @@ func (d Deps) registerWriteTools(server *mcp.Server, closedWorld *bool) {
 			"Repeating an identical declaration changes nothing. Raises ProductPackLevelDeclared (and ProductPackLevelRetired when it supersedes). " +
 			"Fails with invalid-gtin, variable-measure-unsupported, invalid-pack-level, invalid-pack-quantity, pack-level-order, " +
 			"pack-dimensions-below-contents, gtin-already-assigned or product-not-found.",
-		Annotations: additiveWrite,
+		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: &notDestructive, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL3),
 	}, d.declarePackLevel)
 
 	addTool(server, &mcp.Tool{
@@ -167,7 +173,8 @@ func (d Deps) registerWriteTools(server *mcp.Server, closedWorld *bool) {
 			"are kept: the GTIN still resolves, with active false, and is never reassigned. Retiring a level that is already retired changes " +
 			"nothing. Levels above it are not retired: re-declare them. Raises ProductPackLevelRetired. Fails with pack-level-not-found when the " +
 			"SKU never had that level, invalid-pack-level, invalid-reason or product-not-found.",
-		Annotations: endDatingWrite,
+		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, DestructiveHint: &destructive, OpenWorldHint: &closedWorld},
+		Meta:        authorityMeta(authorityL3),
 	}, d.retirePackLevel)
 }
 

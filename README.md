@@ -287,9 +287,15 @@ tools: `declare_pack_level` and `retire_pack_level`. The writes run the same
 use cases as REST, so they enqueue their events in the transactional outbox;
 the binary still never dials Kafka and never runs the relay (the relay in
 `cmd/api` publishes them). A governance test fails the build on any other
-write-verb tool name. `GET /healthz` backs the probes; no auth (fleet-wide).
+write-verb tool name. Every tool and A2A skill declares its agent authority
+level (`com.warehouse/authority` / `authority:L<n>` tags: L1 reads, L3 writes),
+the handler is stateless (2026-07-28 `server/discover` and legacy
+`initialize`), and the server offers one resource
+(`warehouse://product-master/skus/{sku}/pack-levels`) and one prompt
+(`declare_pack_levels`). `GET /healthz` backs the probes; no auth (fleet-wide).
 Details: [ADR 0005](docs/adr/0005-mcp-server-adoption.md),
 [ADR 0011](docs/adr/0011-packaging-hierarchy-with-gs1-gtin.md),
+[ADR 0014](docs/adr/0014-agent-authority-levels-and-complete-mcp-surface.md),
 `.claude/rules/mcp.md`.
 
 ### Running the A2A agent in Kubernetes
