@@ -9,6 +9,7 @@ hazard class) and physically (declared and measured unit dimensions and
 weight). It owns the `Product` aggregate. It answers no "where" or "how many"
 question: stock is inventory-storage's. It ships four binaries (`cmd/api` REST
 + outbox relay, `cmd/mcp` read-only MCP, `cmd/product-projector` and
+ Agent authority: every MCP tool and A2A skill declares a level (`com.warehouse/authority` _meta / `authority:L<n>` skill tag; L1 read, L2 recommend, L3 write - ADR 0014); the MCP Streamable HTTP handler is stateless and answers the 2026-07-28 revision.
 `cmd/product-reports` for the analytics read side) and the `web/`
 micro-frontend remote.
 
