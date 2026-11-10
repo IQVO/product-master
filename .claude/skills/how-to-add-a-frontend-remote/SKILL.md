@@ -11,7 +11,7 @@ Use when adding a new screen/feature to this repo's `web/` Module
 Federation remote, or when standing up a NEW remote for a bounded context
 that doesn't have one yet. This is the Vite/React micro-frontend layer
 that `warehouse-console` (the shell) lazy-loads — see that repo's
-.claude/rules/mfe-remotes.md for the shell-side half of this contract.
+mfe-remotes rule (in its own rules directory) for the shell-side half of this contract.
 This repo's remote is `productmaster_mfe` (see `.claude/rules/frontend.md` for
 the pinned names, port 5191 and mount path).
 
