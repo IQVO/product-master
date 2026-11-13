@@ -61,21 +61,22 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 // (signal.NotifyContext). The test's own handler is registered FIRST so a
 // signal arriving before run() reaches its NotifyContext can never kill the
 // test binary (Go's default SIGTERM disposition), and the signal is retried
-// until run() observes one. The drain contract is the documented one:
-// srv.Shutdown bounded by shutdownTimeout, exit nil.
+// until run() observes one. The handler is DELIBERATELY never unregistered:
+// once run() has returned its NotifyContext is stopped too, and unregistering
+// this last handler would restore the default SIGTERM disposition while one
+// of the just-sent retry signals can still be in flight (a CI run caught
+// exactly that race: the test binary itself died with "signal: terminated").
+// The drain contract is the documented one: srv.Shutdown bounded by
+// shutdownTimeout, exit nil.
 func stopWithSIGTERM(t *testing.T, done <-chan error) error {
 	t.Helper()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM)
-	defer signal.Stop(sigCh)
 	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
 		_ = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 		select {
 		case err := <-done:
 			return err
-		case <-sigCh:
-			// Swallowed by the test's own handler; run() may not have been
-			// listening yet. Fall through and send another.
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
