@@ -9,7 +9,7 @@ sidebar_position: 16
 
 Notation from the ddd-crew
 [EventStorming glossary and cheat sheet](https://github.com/ddd-crew/eventstorming-glossary-cheat-sheet).
-Two live processes and the record of the finished migration, each read left
+Three live processes and the record of the finished migration, each read left
 to right. Hotspots are real, documented gaps
 (ADRs, code comments), not invented ones.
 
@@ -36,7 +36,7 @@ flowchart LR
 ```
 
 Source: ddd-crew cheat-sheet colours as specified for the fleet.
-Omits: nothing; this is the key for the three diagrams below.
+Omits: nothing; this is the key for the four diagrams below.
 
 ## 1. Register and classify a SKU
 
@@ -58,6 +58,7 @@ flowchart LR
   P1 --> FE[fulfillment-execution]:::external
   P1 --> SO[slotting-optimization]:::external
   P1 --> IR[inbound-receiving]:::external
+  P1 --> RP[returns-processing]:::external
   A1 --> R1[GET /products, product, classification]:::readmodel
   H1[A SKU classified moments before its first stow may reach a consumer late]:::hotspot -.- P1
   H2[No unclassify command or event in v1]:::hotspot -.- C2
@@ -77,9 +78,12 @@ Source: `internal/application/usecases/register_product.go`,
 `internal/adapters/outbound/kafka/encoder.go`; ADR 0001 (Consequences:
 eventual consistency).
 Omits: the rejection paths (`400` slugs, `404 product-not-found`) and the
-consumers' own policies. `ProductClassified` is consumed by the first five
-externals, `ProductRegistered` by inbound-receiving only, and
-`ProductDescriptionChanged` by nobody.
+consumers' own policies. `ProductClassified` is consumed by inventory-storage,
+order-management, wes-work-planning, fulfillment-execution,
+slotting-optimization and returns-processing, `ProductRegistered` by
+inbound-receiving only, and `ProductDescriptionChanged` by nobody. The consumers'
+code is on their `develop` branches (see
+[Downstream consumers](/docs/ecosystem/downstream-consumers)).
 
 ## 2. Declare and measure the physical profile
 
@@ -114,7 +118,55 @@ slotting-optimization `internal/adapters/inbound/kafka/product_consumer.go`.
 Omits: `ErrStaleMeasurement` and `ErrMeasuredAtInFuture` (see the
 [sequence diagrams](/docs/ddd/sequence-diagrams)).
 
-## 3. Import legacy classifications (migration record, removed at stage E)
+## 3. Declare, retire and measure pack levels
+
+```mermaid
+flowchart LR
+  ST([Master-data steward]):::actor --> C1[DeclarePackLevel]:::command
+  ST --> C2[RetirePackLevel]:::command
+  DV([Dimensioning device or operator]):::actor --> C3[RecordPackLevelMeasurement]:::command
+  C1 --> A1[Product]:::aggregate
+  C2 --> A1
+  C3 --> A1
+  A1 --> E1[ProductPackLevelDeclared]:::event
+  A1 --> E2[ProductPackLevelRetired]:::event
+  A1 --> E3[ProductPackLevelMeasured]:::event
+  E1 --> P1[Every accepted change goes to warehouse.product-master.events through the outbox, not to the analytics topic]:::policy
+  E2 --> P1
+  E3 --> P1
+  P1 -->|all three| SO[slotting-optimization]:::external
+  P1 -->|all three| WWP[wes-work-planning]:::external
+  P1 -->|Declared, Retired| IR[inbound-receiving]:::external
+  P1 -->|Declared, Retired| INV[inventory-storage]:::external
+  P1 -->|Declared, Retired| PFR[pick-face-replenishment]:::external
+  P1 -->|Declared, Retired| FE[fulfillment-execution]:::external
+  P1 -->|Declared, Retired| NIP[network-inventory-planning]:::external
+  A1 --> R1[GET /products/SKU/pack-levels, GET /gtins/GTIN]:::readmodel
+  H1[A new GTIN at an active level raises Retired superseded, then Declared, one version apart]:::hotspot -.- P1
+  H2[ADR 0011 names process-path-management and labor-performance as consumers, neither consumes a pack level type]:::hotspot -.- P1
+
+  classDef actor fill:#fff7a8,stroke:#b8a400,color:#000,font-size:11px
+  classDef command fill:#4aa3df,stroke:#1f6fa3,color:#fff
+  classDef aggregate fill:#f7d84a,stroke:#b39b12,color:#000
+  classDef event fill:#f6a04d,stroke:#b8661c,color:#000
+  classDef policy fill:#c39bd3,stroke:#7d4f91,color:#000
+  classDef readmodel fill:#7dcea0,stroke:#2f8a57,color:#000
+  classDef external fill:#f1948a,stroke:#a9483e,color:#000
+  classDef hotspot fill:#e74c3c,stroke:#8e1f14,color:#fff
+```
+
+Source: `internal/application/usecases/pack_levels.go`,
+`internal/domain/product/events.go`, `internal/adapters/outbound/kafka/encoder.go`,
+`apis/asyncapi.yaml` (`ProductPackLevelDeclared`, `ProductPackLevelRetired`,
+`ProductPackLevelMeasured`), [ADR 0011](/docs/adr/0011-packaging-hierarchy-with-gs1-gtin);
+the consumers' code on their `develop` branches (see
+[Downstream consumers](/docs/ecosystem/downstream-consumers)).
+Omits: the rejection paths (`404 pack-level-not-found`, the GTIN invariants of
+ADR 0011) and the consumers' own policies. `ProductPackLevelDeclared` and
+`ProductPackLevelRetired` are consumed by seven contexts, `ProductPackLevelMeasured`
+by slotting-optimization and wes-work-planning only; the other five ignore it by type.
+
+## 4. Import legacy classifications (migration record, removed at stage E)
 
 ```mermaid
 flowchart LR
@@ -153,14 +205,16 @@ Omits: the processed-event claim and the retry loop of the former importer.
 | Sticky | Kind | Code evidence |
 | --- | --- | --- |
 | Master-data steward, dimensioning device, operator | Actor | REST callers of `internal/adapters/inbound/http/handlers.go` |
-| `RegisterProduct`, `ClassifyProduct`, `DeclareDimensions`, `RecordMeasurement` | Command | `internal/application/usecases/*.go` |
+| `RegisterProduct`, `ClassifyProduct`, `DeclareDimensions`, `RecordMeasurement`, `DeclarePackLevel`, `RetirePackLevel`, `RecordPackLevelMeasurement` | Command | `internal/application/usecases/*.go` |
 | `Product` | Aggregate | `internal/domain/product/product.go` |
-| `ProductRegistered`, `ProductDescriptionChanged`, `ProductClassified`, `ProductDimensionsDeclared`, `ProductMeasured` | Domain event (published) | `internal/domain/product/events.go`, `internal/adapters/outbound/kafka/encoder.go` |
+| `ProductRegistered`, `ProductDescriptionChanged`, `ProductClassified`, `ProductDimensionsDeclared`, `ProductMeasured`, `ProductPackLevelDeclared`, `ProductPackLevelRetired`, `ProductPackLevelMeasured` | Domain event (published) | `internal/domain/product/events.go`, `internal/adapters/outbound/kafka/encoder.go` |
 | Publish every accepted change through the outbox | Policy | `Writer.persist` in `writer.go`, `outbox.Relay` |
 | Product, classification, physical profile, product list | Read model | `GetProduct`, `ListProducts` in `queries.go` |
-| inventory-storage, order-management, wes-work-planning, fulfillment-execution, slotting-optimization, inbound-receiving | External system | their consumers of `warehouse.product-master.events` on `develop` |
+| inventory-storage, order-management, wes-work-planning, fulfillment-execution, slotting-optimization, inbound-receiving, returns-processing, pick-face-replenishment, network-inventory-planning | External system | their consumers of `warehouse.product-master.events` on `develop` |
 | Late classification before first stow | Hotspot | ADR 0001, Consequences |
 | No unclassify | Hotspot | `Product` has no method that removes a classification, and ADR 0004 lists no such event |
 | Physical profile used by slotting-optimization only | Hotspot | ADR 0002, Consequences ("later phases"): no sibling consumes it for package weight, stow volume or cube capacity |
 | Fixed 10 % tolerance, no measurement history | Hotspot | ADR 0002 rule 6 and Consequences |
+| New GTIN at an active level: Retired `superseded`, then Declared | Hotspot | ADR 0011 decision G7; `apis/asyncapi.yaml` (`ProductPackLevelRetired`) |
+| ADR 0011 consumers that do not consume | Hotspot | ADR 0011 (Events) names process-path-management and labor-performance; neither repository handles a pack level type on `develop`, and labor-performance ADR 0035 says it does not |
 | `legacy-import` rows never reviewed | Hotspot | ADR 0003, Consequences; `SourceLegacyImport` stays a valid stored value |

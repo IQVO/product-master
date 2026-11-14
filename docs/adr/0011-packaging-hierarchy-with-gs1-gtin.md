@@ -190,3 +190,11 @@ from search results on 2026-10-23 and were not machine-verified.
 - [7] GS1 GDSN Trade Item Implementation Guide: [https://ref.gs1.org/guidelines/tiig/35.0.0/](https://ref.gs1.org/guidelines/tiig/35.0.0/)
 - [17] Case pack vs eaches (GTIN mix-ups): [https://queenssurgical.net/post/case-pack-vs-eaches](https://queenssurgical.net/post/case-pack-vs-eaches)
 - [18] Inventory UoM and case-pack conversions: [https://oceanportlink.com/blog/inventory-unit-of-measure-case-pack-control](https://oceanportlink.com/blog/inventory-unit-of-measure-case-pack-control)
+
+## Addendum 2026-11-13: current state
+
+- The Status above is out of date: the decision is built (PR #61 `70d8eac`, web screen PR #62). `DeclarePackLevel`, `RetirePackLevel` and `RecordPackLevelMeasurement` are in `internal/application/usecases/pack_levels.go`; the routes `listPackLevels`, `declarePackLevel`, `retirePackLevel`, `recordPackLevelMeasurement` (`PUT .../measured`) and `resolveGtin` are in `apis/openapi.yaml`; the MCP tools `declare_pack_level` and `retire_pack_level` are in `internal/adapters/inbound/mcp/tools.go`.
+- The three events are published (`apis/asyncapi.yaml`) with snake_case fields (`child_gtin`, `effective_to`, `measured_at`), not the camelCase of the Events table above (see ADR 0004).
+- Consumers on `develop`: `ProductPackLevelDeclared` and `ProductPackLevelRetired` are consumed by inbound-receiving, inventory-storage, slotting-optimization, pick-face-replenishment, fulfillment-execution, wes-work-planning and network-inventory-planning (not named above); `ProductPackLevelMeasured` by slotting-optimization and wes-work-planning.
+- process-path-management and labor-performance, named above as consumers, handle no pack level type on `develop` (labor-performance ADR 0035 says so).
+- The Status line is left as written. Whether to mark this ADR Accepted is the maintainers' decision; the ADR index already lists it as "Accepted - implemented".

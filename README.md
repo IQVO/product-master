@@ -97,12 +97,17 @@ Every **unit** event (not the three pack-level events) also goes, in the same
 outbox transaction and under the same CloudEvents id, to
 `warehouse.product-master.analytics` (ADR 0006).
 
-**Downstream consumers** — six contexts keep local copies from
+**Downstream consumers** — nine contexts keep local copies from
 `warehouse.product-master.events`, all built on their `develop` and wired in
-Kafka mode in warehouse-infra: inventory-storage, order-management,
-wes-work-planning, fulfillment-execution and slotting-optimization consume
+warehouse-infra: inventory-storage, order-management, wes-work-planning,
+fulfillment-execution, slotting-optimization and returns-processing consume
 `ProductClassified` (slotting-optimization also `ProductDimensionsDeclared`
 and `ProductMeasured`), and inbound-receiving consumes `ProductRegistered`.
+The pack-level events are consumed too: `ProductPackLevelDeclared` and
+`ProductPackLevelRetired` by inbound-receiving, inventory-storage,
+slotting-optimization, pick-face-replenishment, fulfillment-execution,
+wes-work-planning and network-inventory-planning, `ProductPackLevelMeasured`
+by slotting-optimization and wes-work-planning.
 `ProductDescriptionChanged` has no consumer. **Nothing flows in**: the legacy
 classification importer from inventory-storage was removed at stage E of
 [ADR 0003](docs/adr/0003-migration-from-inventory-storage.md) (finished

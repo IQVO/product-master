@@ -80,22 +80,28 @@ flowchart LR
     BC["<b>product-master - Supporting subdomain - WMS tier</b>"]:::bc
     subgraph OUT["Outbound - whom it calls or notifies"]
         direction TB
-        out0["inventory-storage,<br/>order-management,<br/>wes-work-planning,<br/>fulfillment-execution,<br/>slotting-optimization"]:::ctx
+        out0["inventory-storage,<br/>order-management,<br/>wes-work-planning,<br/>fulfillment-execution,<br/>slotting-optimization,<br/>returns-processing"]:::ctx
         out1["slotting-optimization"]:::ctx
         out2["inbound-receiving (known<br/>SKUs copy)"]:::ctx
         out3["no consumer today"]:::none
         out4["own product-projector"]:::self
+        out5["inbound-receiving,<br/>inventory-storage,<br/>slotting-optimization,<br/>pick-face-replenishment,<br/>fulfillment-execution,<br/>wes-work-planning,<br/>network-inventory-planning"]:::ctx
+        out6["slotting-optimization,<br/>wes-work-planning"]:::ctx
     end
     BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductClassified"| out0
     BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductDimensionsDeclared,<br/>ProductMeasured"| out1
     BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductRegistered"| out2
     BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductDescriptionChanged"| out3
     BC ==>|"evt - Kafka<br/>warehouse.product-master.analytics<br/>analytics copy"| out4
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductPackLevelDeclared,<br/>ProductPackLevelRetired"| out5
+    BC ==>|"evt - Kafka<br/>warehouse.product-master.events<br/>ProductPackLevelMeasured"| out6
     linkStyle 0 stroke:#e8590c,stroke-width:2.5px
     linkStyle 1 stroke:#e8590c,stroke-width:2.5px
     linkStyle 2 stroke:#e8590c,stroke-width:2.5px
     linkStyle 3 stroke:#e8590c,stroke-width:2.5px
     linkStyle 4 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 5 stroke:#e8590c,stroke-width:2.5px
+    linkStyle 6 stroke:#e8590c,stroke-width:2.5px
 ```
 
 Source: the Inbound Communication and Outbound Communication tables of this
@@ -123,7 +129,7 @@ request time. It answers no "where" or "how many" question (ADR 0001).
 | Axis | Verdict | Evidence |
 | --- | --- | --- |
 | Domain | **Supporting** | ADR 0001 "Classification"; see the [core domain chart](/docs/ddd/core-domain-chart) |
-| Business model | **Compliance and risk reduction**: it earns nothing itself; it keeps hazmat, temperature and fragile handling correct in every downstream flow | five consumers use the classification (stow placement and segregation, intake routing, release capabilities, seal-time segregation, slot plans), and inbound-receiving uses the registered SKUs to accept ASN lines |
+| Business model | **Compliance and risk reduction**: it earns nothing itself; it keeps hazmat, temperature and fragile handling correct in every downstream flow | six consumers use the classification (stow placement and segregation, intake routing, release capabilities, seal-time segregation, slot plans, return disposition), inbound-receiving uses the registered SKUs to accept ASN lines, and seven consumers keep a local view of the pack levels |
 | Evolution | **Custom-built** (genesis) | Created 2026-10-06 (ADRs 0001-0004); the migration from inventory-storage finished with stage E on 2026-10-17 (ADR 0003): product-master is the only producer of classifications |
 
 ## Domain Roles
@@ -170,11 +176,13 @@ outbox and the relay in `cmd/api`.
 
 | Collaborator | Message | Type | Channel | Relationship |
 | --- | --- | --- | --- | --- |
-| `inventory-storage`, `order-management`, `wes-work-planning`, `fulfillment-execution`, `slotting-optimization` | `ProductClassified` | Event | Kafka `warehouse.product-master.events`, `com.warehouse.wms.product-master.product.ProductClassified` | This context upstream, OHS + Published Language; each consumer keeps a version-guarded local copy. All five are built and wired in warehouse-infra (see the [context map](/docs/ddd/context-map)) |
+| `inventory-storage`, `order-management`, `wes-work-planning`, `fulfillment-execution`, `slotting-optimization`, `returns-processing` | `ProductClassified` | Event | Kafka `warehouse.product-master.events`, `com.warehouse.wms.product-master.product.ProductClassified` | This context upstream, OHS + Published Language; each consumer keeps a version-guarded local copy. All six are built and wired in warehouse-infra (see the [context map](/docs/ddd/context-map)) |
 | `inbound-receiving` (its `known_skus` local copy) | `ProductRegistered` | Event | same topic, `com.warehouse.wms.product-master.product.ProductRegistered` | OHS + PL |
 | none today | `ProductDescriptionChanged` | Event | same topic, `...product.ProductDescriptionChanged` | OHS + PL |
 | `slotting-optimization` (its product copy) | `ProductDimensionsDeclared` | Event | same topic, `...product.ProductDimensionsDeclared` | OHS + PL |
 | `slotting-optimization` (its product copy) | `ProductMeasured` | Event | same topic, `...product.ProductMeasured` | OHS + PL |
+| `inbound-receiving`, `inventory-storage`, `slotting-optimization`, `pick-face-replenishment`, `fulfillment-execution`, `wes-work-planning`, `network-inventory-planning` (each its own pack level view) | `ProductPackLevelDeclared`, `ProductPackLevelRetired` | Event | same topic, `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired` | OHS + PL |
+| `slotting-optimization`, `wes-work-planning` (their pack level views) | `ProductPackLevelMeasured` | Event | same topic, `...product.ProductPackLevelMeasured` | OHS + PL |
 
 ## Ubiquitous Language
 
