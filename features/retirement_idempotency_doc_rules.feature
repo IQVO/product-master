@@ -37,6 +37,14 @@ Feature: The keyed retirement POST
     And the response field "active" is "false"
     And the outbox holds 4 messages
 
+  Scenario: A key may use every printable ASCII character from the space to the tilde
+    When I POST "/products/SKU-1/pack-levels/CASE/retirements" with the Idempotency-Key "retire case 1"
+    Then the response status is 200
+    And the response field "active" is "false"
+    When I POST "/products/SKU-1/pack-levels/EACH/retirements" with the Idempotency-Key "~"
+    Then the response status is 200
+    And the response field "active" is "false"
+
   Scenario: The same key with the same request replays the stored answer and retires once
     When I POST "/products/SKU-1/pack-levels/CASE/retirements" with body '{"reason":"discontinued"}' and the Idempotency-Key "retire-case-1"
     Then the response status is 200
