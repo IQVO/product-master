@@ -38,6 +38,7 @@ func registerDocRuleSteps(sc *godog.ScenarioContext, w *world) {
 	// requests
 	sc.Step(`^the (PUT|POST) "([^"]*)" with body '(.*)' has been accepted$`, w.hasBeenAccepted)
 	sc.Step(`^I (PUT|POST) "([^"]*)" with a JSON body padded with leading spaces to (\d+) bytes: '(.*)'$`, w.iSendPadded)
+	sc.Step(`^I send POST "([^"]*)" with body '(.*)'$`, func(path, body string) error { return w.call(http.MethodPost, path, body) })
 	sc.Step(`^I register a SKU made of (\d+) times "([^"]*)"$`, w.registerSKUMadeOf)
 	sc.Step(`^I register "([^"]*)" with a description made of (\d+) times "([^"]*)"$`, w.registerDescriptionMadeOf)
 	sc.Step(`^the products named "([^"]*)" numbered (\d+) to (\d+) are registered$`, w.registerNumbered)
