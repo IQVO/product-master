@@ -111,7 +111,7 @@ flowchart LR
   OUTBOX --> RELAY["outbox relay in cmd/api"]
   RELAY --> EV["warehouse.product-master.events"]
   RELAY --> AN["warehouse.product-master.analytics"]
-  EV --> SIB["inventory-storage, order-management,<br/>wes-work-planning, fulfillment-execution,<br/>slotting-optimization, inbound-receiving"]
+  EV --> SIB["inventory-storage, order-management,<br/>wes-work-planning, fulfillment-execution,<br/>slotting-optimization, inbound-receiving,<br/>pick-face-replenishment, network-inventory-planning,<br/>returns-processing"]
   AN --> PROJ["cmd/product-projector"]
   PROJ --> ADB[("analytical database")]
   PROJ -. "poison" .-> DLQ["warehouse.product-master.analytics.dlq"]
