@@ -52,7 +52,9 @@ func registerDocRuleSteps(sc *godog.ScenarioContext, w *world) {
 	sc.Step(`^I POST "([^"]*)" with body '(.*)' and no Idempotency-Key$`, w.postWithoutKey)
 	sc.Step(`^I POST "([^"]*)" with the Idempotency-Key "([^"]*)"$`, func(path, key string) error { return w.do(w.server.URL, http.MethodPost, path, "", []string{key}) })
 	sc.Step(`^I POST "([^"]*)" with the Idempotency-Keys "([^"]*)" and "([^"]*)"$`, func(path, a, b string) error { return w.do(w.server.URL, http.MethodPost, path, "", []string{a, b}) })
-	sc.Step(`^I POST "([^"]*)" with an Idempotency-Key of (\d+) characters$`, func(path string, n int) error { return w.do(w.server.URL, http.MethodPost, path, "", []string{strings.Repeat("k", n)}) })
+	sc.Step(`^I POST "([^"]*)" with an Idempotency-Key of (\d+) characters$`, func(path string, n int) error {
+		return w.do(w.server.URL, http.MethodPost, path, "", []string{strings.Repeat("k", n)})
+	})
 
 	// response assertions
 	sc.Step(`^the response field "([^"]*)" is null$`, w.theResponseFieldIsNull)
@@ -122,7 +124,7 @@ func (w *world) retireWithReasonOf(level, sku string, n int) error {
 func (w *world) iGetNextPageOf(path string) error {
 	cursor, ok, err := w.field("nextCursor")
 	if err != nil || !ok {
-		return fmt.Errorf("no nextCursor in %s (%v)", w.body, err)
+		return fmt.Errorf("no nextCursor in %s (%w)", w.body, err)
 	}
 	sep := "?"
 	if strings.Contains(path, "?") {
