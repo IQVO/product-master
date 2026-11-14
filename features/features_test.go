@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 
 	inboundhttp "github.com/claudioed/product-master/internal/adapters/inbound/http"
 	"github.com/claudioed/product-master/internal/adapters/kafka/cloudevents"
-	outboundkafka "github.com/claudioed/product-master/internal/adapters/outbound/kafka"
 	"github.com/claudioed/product-master/internal/adapters/outbound/memory"
 	"github.com/claudioed/product-master/internal/application/usecases"
 )
@@ -45,9 +45,24 @@ func TestFeatures(t *testing.T) {
 // bddNow is the service clock of every scenario.
 var bddNow = time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
 
-type fixedClock struct{}
+// scenarioClock is the service clock of one scenario: bddNow until a step
+// moves it ("the service clock reads ...", steps_rules_test.go).
+type scenarioClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
 
-func (fixedClock) Now() time.Time { return bddNow }
+func (c *scenarioClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *scenarioClock) set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = t
+}
 
 // world is the per-scenario state.
 type world struct {
@@ -56,19 +71,29 @@ type world struct {
 
 	readiness *inboundhttp.Readiness
 
+	// clock is the service clock; analytics is the projector + reports rig
+	// of the analytics scenarios (steps_rules_test.go).
+	clock     *scenarioClock
+	analytics *analyticsRig
+
 	status      int
 	body        []byte
 	contentType string
+	header      http.Header
 
 	listQuery string
 	keySeq    int
 }
 
 func (w *world) start() {
+	w.clock = &scenarioClock{t: bddNow}
+	w.analytics = newAnalyticsRig(w)
 	products, ob, processed := memory.NewProductRepo(), memory.NewOutboxRepo(), memory.NewProcessedEventRepo()
 	writer := usecases.Writer{
-		Products: products, Outbox: ob, Encoder: outboundkafka.NewEncoder(),
-		UoW: memory.NewUnitOfWork(products, ob, processed), Clock: fixedClock{},
+		// The production encoder: every event is an integration row (the
+		// outbox the scenarios read) and an analytics row (kept by the rig).
+		Products: products, Outbox: ob, Encoder: w.analytics.encoder(),
+		UoW: memory.NewUnitOfWork(products, ob, processed), Clock: w.clock,
 	}
 	w.readiness = &inboundhttp.Readiness{}
 	s := &inboundhttp.Server{
@@ -92,6 +117,10 @@ func (w *world) start() {
 }
 
 func (w *world) stop() {
+	if w.analytics != nil {
+		w.analytics.stop()
+		w.analytics = nil
+	}
 	if w.server != nil {
 		w.server.Close()
 		w.server = nil
@@ -100,16 +129,28 @@ func (w *world) stop() {
 
 // call issues a request and remembers the response.
 func (w *world) call(method, path, body string) error {
+	return w.do(w.server.URL, method, path, body, nil)
+}
+
+// do is call against any base URL. A POST/PATCH gets a fresh Idempotency-Key
+// unless keys is non-nil: then the request carries exactly those header
+// values (none at all for an empty, non-nil slice).
+func (w *world) do(base, method, path, body string, keys []string) error {
 	var reader io.Reader = http.NoBody
 	if body != "" {
 		reader = strings.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(context.Background(), method, w.server.URL+path, reader)
+	req, err := http.NewRequestWithContext(context.Background(), method, base+path, reader)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if method == http.MethodPost || method == http.MethodPatch {
+	switch {
+	case keys != nil:
+		for _, k := range keys {
+			req.Header.Add("Idempotency-Key", k)
+		}
+	case method == http.MethodPost || method == http.MethodPatch:
 		w.keySeq++
 		req.Header.Set("Idempotency-Key", fmt.Sprintf("bdd-key-%d", w.keySeq))
 	}
@@ -120,6 +161,7 @@ func (w *world) call(method, path, body string) error {
 	defer resp.Body.Close()
 	w.status = resp.StatusCode
 	w.contentType = resp.Header.Get("Content-Type")
+	w.header = resp.Header.Clone()
 	w.body, err = io.ReadAll(resp.Body)
 	return err
 }
@@ -187,6 +229,14 @@ func (w *world) field(path string) (any, bool, error) {
 		return nil, false, fmt.Errorf("response is not JSON: %s", w.body)
 	}
 	for _, key := range strings.Split(path, ".") {
+		if list, isList := cur.([]any); isList {
+			i, err := strconv.Atoi(key)
+			if err != nil || i < 0 || i >= len(list) {
+				return nil, false, nil
+			}
+			cur = list[i]
+			continue
+		}
 		obj, ok := cur.(map[string]any)
 		if !ok {
 			return nil, false, nil
@@ -358,4 +408,6 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 
 	registerWave2Steps(sc, w)
 	registerPackagingSteps(sc, w)
+	registerDocRuleSteps(sc, w)
+	registerLifecycleSteps(sc, w)
 }
