@@ -409,4 +409,5 @@ func InitializeScenario(sc *godog.ScenarioContext) {
 	registerWave2Steps(sc, w)
 	registerPackagingSteps(sc, w)
 	registerDocRuleSteps(sc, w)
+	registerLifecycleSteps(sc, w)
 }
