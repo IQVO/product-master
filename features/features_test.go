@@ -45,20 +45,20 @@ func TestFeatures(t *testing.T) {
 // bddNow is the service clock of every scenario.
 var bddNow = time.Date(2026, 10, 6, 15, 0, 0, 0, time.UTC)
 
-// settableClock is the service clock of one scenario: bddNow until a step
+// scenarioClock is the service clock of one scenario: bddNow until a step
 // moves it ("the service clock reads ...", steps_rules_test.go).
-type settableClock struct {
+type scenarioClock struct {
 	mu sync.Mutex
 	t  time.Time
 }
 
-func (c *settableClock) Now() time.Time {
+func (c *scenarioClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.t
 }
 
-func (c *settableClock) set(t time.Time) {
+func (c *scenarioClock) set(t time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.t = t
@@ -73,7 +73,7 @@ type world struct {
 
 	// clock is the service clock; analytics is the projector + reports rig
 	// of the analytics scenarios (steps_rules_test.go).
-	clock     *settableClock
+	clock     *scenarioClock
 	analytics *analyticsRig
 
 	status      int
@@ -86,7 +86,7 @@ type world struct {
 }
 
 func (w *world) start() {
-	w.clock = &settableClock{t: bddNow}
+	w.clock = &scenarioClock{t: bddNow}
 	w.analytics = newAnalyticsRig(w)
 	products, ob, processed := memory.NewProductRepo(), memory.NewOutboxRepo(), memory.NewProcessedEventRepo()
 	writer := usecases.Writer{
