@@ -50,6 +50,7 @@ jobs:
       - run: python3 scripts/harness/test_hook.py
       - run: python3 scripts/harness/test_repo_lint.py
       - run: python3 scripts/harness/test_red_issue.py
+      - run: python3 scripts/harness/asyncapi_breaking.py --self-test
 
 
   # Complexity gate as its own named check: cyclomatic (gocyclo, cyclop),
@@ -293,6 +294,99 @@ jobs:
       - name: Lint AsyncAPI spec
         run: spectral lint apis/asyncapi.yaml --ruleset .spectral.asyncapi.yaml --fail-severity=warn
 
+  # ============================================================
+  # CLASSIFICATION: CONTRACT DRIFT (breaking spec changes vs the PR base)
+  # Producer-parity gates (consumer-contract wave, 2026-11): apis/openapi.yaml
+  # and apis/asyncapi.yaml are PINNED by consumer CI (byte-copies under
+  # contracts/pinned.json on their side; edges: warehouse-docs
+  # network/model/contract-edges.json), so an incompatible change here breaks
+  # their builds one merge later. On a pull_request touching apis/** this job
+  # compares the PR base with the head and fails on BREAKING change only:
+  # REST via oasdiff, events via scripts/harness/asyncapi_breaking.py (removed
+  # message, removed/renamed required data field, type narrowing). Additive
+  # evolution (new operation/message, new optional field, widened type) passes.
+  # ============================================================
+  spec-breaking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0        # the PR base sha must be present for git show / git diff
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.13"
+      - name: Does this PR touch the specs?
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if git diff --name-only "$base" HEAD -- apis/ | grep -q .; then
+            echo "apis/ changes present — running the breaking gates"
+            echo "SPECS_TOUCHED=1" >> "$GITHUB_ENV"
+          else
+            echo "apis/ untouched by this PR — breaking gates skipped"
+          fi
+      - name: Install oasdiff (pinned)
+        if: env.SPECS_TOUCHED == '1'
+        run: go install github.com/oasdiff/oasdiff@v1.38.0
+      - name: Install PyYAML (pinned)
+        if: env.SPECS_TOUCHED == '1'
+        run: python3 -m pip install --require-hashes -r .github/requirements/chart-tests.txt
+      - name: REST breaking gate (oasdiff breaking, PR base vs head)
+        if: env.SPECS_TOUCHED == '1'
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git show "$base:apis/openapi.yaml" > /tmp/openapi.yaml.base
+          # --fail-on ERR: without it oasdiff prints breaking changes but exits 0
+          if ! oasdiff breaking --fail-on ERR /tmp/openapi.yaml.base apis/openapi.yaml; then
+            echo "::error::BREAKING REST spec change vs the PR base. apis/openapi.yaml is pinned by consumer CI: network-fulfillment (REST, PRODUCT_MASTER_URL; contracts/pinned.json -> internal/adapters/outbound/productmaster/testdata/product-master.openapi.yaml). Make the change additive (or version a new path/operation) and coordinate the pin refresh on the consumer side."
+            exit 1
+          fi
+      - name: AsyncAPI breaking gate (events catalog, PR base vs head)
+        if: env.SPECS_TOUCHED == '1'
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git show "$base:apis/asyncapi.yaml" > /tmp/asyncapi.yaml.base
+          if ! python3 scripts/harness/asyncapi_breaking.py /tmp/asyncapi.yaml.base apis/asyncapi.yaml; then
+            echo "::error::BREAKING event change vs the PR base. apis/asyncapi.yaml is pinned by consumer CI (topic warehouse.product-master.events): fulfillment-execution, inbound-receiving, inventory-storage, network-inventory-planning, order-management, pick-face-replenishment, returns-processing, slotting-optimization, wes-work-planning (each: contracts/pinned.json -> internal/adapters/inbound/kafka/testdata/product-master.asyncapi.yaml). A breaking payload change is a new .v2 type with a new dataschema URN, never a mutation."
+            exit 1
+          fi
+      - name: The AsyncAPI gate's own self-test
+        run: python3 scripts/harness/asyncapi_breaking.py --self-test
+
+  # ============================================================
+  # CLASSIFICATION: CONTRACT TESTING (OpenAPI / Schemathesis)
+  # Property-based testing of apis/openapi.yaml: boots the service with its
+  # REAL adapters in pinned throwaway containers (product-master has no
+  # in-memory runtime, ADR 0010) and generates valid AND invalid requests for
+  # every operation, asserting response conformance (status codes, content
+  # types, response schemas; positive data accepted). Catches spec/implementation
+  # drift the example-based suites (unit, httptest, BDD) cannot see. Pinned
+  # install + run mirror IQVO/order-management ci.yml; same invocation as
+  # `make contract` (scripts/contract-test.sh).
+  # ============================================================
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.13"
+      - name: Install Schemathesis (pinned)
+        run: python3 -m pip install --require-hashes -r .github/requirements/schemathesis.txt
+      - name: Contract tests (Schemathesis over apis/openapi.yaml)
+        run: ./scripts/contract-test.sh
+
   # Supply-chain sensor: known CVEs in the dependency graph and in the Go
   # stdlib version this module builds against.
   # ============================================================
@@ -517,7 +611,7 @@ jobs:
   docker-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [lint, complexity, test, bdd, integration, mutation-fast, vuln, api-lint, arch-test]
+    needs: [lint, complexity, test, bdd, integration, mutation-fast, vuln, api-lint, arch-test, contract]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
