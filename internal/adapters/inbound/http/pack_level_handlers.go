@@ -5,9 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
-
-	"github.com/go-chi/chi/v5"
 
 	"github.com/claudioed/product-master/internal/application/usecases"
 	"github.com/claudioed/product-master/internal/domain/product"
@@ -15,9 +12,9 @@ import (
 
 // The packaging hierarchy routes (ADR 0011).
 
-// pathParam returns a path segment, unescaped.
+// pathParam returns a path segment, decoded once (see routedParam).
 func pathParam(r *http.Request, name string) (string, error) {
-	raw, err := url.PathUnescape(chi.URLParam(r, name))
+	raw, err := routedParam(r, name)
 	if err != nil {
 		return "", errMalformedRequest
 	}
