@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed (2026-10-23). Nothing in this ADR is built; it pins the design so the
+Accepted (2026-11-14; first Proposed 2026-10-23, built since: see the Addendum). It pinned the design so the
 dependent contexts (inbound-receiving, inventory-storage and the other
-consumers listed below) can be specified against stable names. Every change is
+consumers listed below) could be specified against stable names. Every change is
 additive and optional: REST, MCP and the CloudEvents envelope
 ([ADR 0004](./0004-cloudevents-envelope-and-type-catalogue.md)) keep their
 meaning and `v1` stays `v1`. The fleet-wide contract lives in

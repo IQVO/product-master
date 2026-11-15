@@ -25,7 +25,7 @@ change of decision is recorded in a new ADR that supersedes the old one.
 | [0008](./0008-projector-telemetry-and-environment.md) | The analytics projector sets up telemetry; every backend Deployment sets ENVIRONMENT | Accepted (2026-10-13); additive |
 | [0009](./0009-trace-context-crosses-the-outbox.md) | The W3C trace context crosses the outbox to Kafka | Accepted (2026-10-13); additive |
 | [0010](./0010-postgres-and-kafka-are-the-only-runtime.md) | Postgres and Kafka are the only runtime (no in-memory mode, no log sink, real `/readyz`) | Accepted (2026-10-19) |
-| [0011](./0011-packaging-hierarchy-with-gs1-gtin.md) | Packaging hierarchy with GS1 GTIN; eaches are the ledger unit | Accepted - implemented (the ADR body still reads "Proposed (2026-10-23)"; see [Status notes](#status-notes)); amends 0005 (two MCP write tools) |
+| [0011](./0011-packaging-hierarchy-with-gs1-gtin.md) | Packaging hierarchy with GS1 GTIN; eaches are the ledger unit | Accepted - implemented (the Status line was flipped from "Proposed (2026-10-23)" on 2026-11-14; see [Status notes](#status-notes)); amends 0005 (two MCP write tools) |
 | [0012](./0012-a2a-inbound-adapter.md) | A2A inbound adapter (third driving adapter): `product_profile` (read) and `declare_pack_level` (write), delegation only | Accepted (2026-10-29); additive |
 | [0013](./0013-adopt-the-fleet-rest-api-guideline.md) | Adopt the fleet REST API guideline: noun route for retirement, `Idempotency-Key` on the one POST (409 reuse, `Idempotency-Replayed`), keyset-paged collections | Accepted (2026-11-01); breaking |
 | [0014](./0014-agent-authority-levels-and-complete-mcp-surface.md) | Agent authority levels and complete MCP surface: every tool/skill declares L1 or L3, the handler is stateless (2026-07-28), one resource + one prompt | Accepted (2026-11-02); additive |
@@ -51,10 +51,10 @@ change of decision is recorded in a new ADR that supersedes the old one.
 
 ## Status notes
 
-The Status column above is the authority for ADR 0011, because its body is
-immutable and was never updated after it was built.
+ADR 0011's Status line was never updated after it was built. It was flipped to
+Accepted on 2026-11-14; this note keeps the history.
 
-- **0011** (body: "Proposed (2026-10-23). Nothing in this ADR is built"):
+- **0011** (the body read "Proposed (2026-10-23). Nothing in this ADR is built" until 2026-11-14):
   Accepted - implemented, checked against `origin/develop` on 2026-11-13.
   - Design merged in PR #60 (2026-10-24); implementation merged in PR #61
     "feat(packaging): pack levels with GS1 GTINs (ADR 0011)" (2026-10-24, commit `70d8eac`).
