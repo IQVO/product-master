@@ -6,12 +6,6 @@ check stays ON for everything else. They are maps, not filters: a filter over
 random unicode discards most candidates and makes the run far slower. Every entry
 names why it is here and what retires it.
 
-* sku-percent  — REAL BUG, not a spec gap: a SKU containing a literal '%' is valid
-  (domain.NewSKU and the spec both allow it) but the HTTP adapter unescapes the path
-  segment twice (internal/adapters/inbound/http/handlers.go skuParam and
-  pack_level_handlers.go pathParam run url.PathUnescape on chi.URLParam, which is
-  already decoded when the request has no RawPath), so GET /products/50%25OFF is
-  answered 400 invalid-sku. Remove this hook when the handler is fixed.
 * measured-at  — `measuredAt` must not be in the future (a clock-dependent rule no
   schema expresses; format: date-time only) and the zero time reads as missing.
 * control-chars — free-text body fields (description, deviceId, reason): the code
@@ -57,12 +51,14 @@ def map_path_parameters(context, path_parameters):
     if not isinstance(sku, str):
         return path_parameters
     # Path parameters arrive already percent-encoded: decode, clean, re-encode.
-    #  - sku-percent: a literal '%' (see the docstring: a handler bug).
+    # A literal '%' is NOT cleaned: it is a valid SKU character and the handler
+    # decodes the segment exactly once (routedParam; the former sku-percent hook
+    # worked around a double decode and was retired with that fix).
     #  - sku-space: the spec's `\s` is ECMA-262 (Unicode) whitespace, but the
     #    generator also emits NBSP and friends; the code rejects them all
     #    (unicode.IsSpace), the spec text agrees, only the generator disagrees.
     raw = unquote(sku)
-    clean = "".join(CLEAN if c == "%" or c.isspace() else c for c in raw)
+    clean = "".join(CLEAN if c.isspace() else c for c in raw)
     if clean != raw:
         path_parameters["sku"] = quote(clean, safe="")
     return path_parameters

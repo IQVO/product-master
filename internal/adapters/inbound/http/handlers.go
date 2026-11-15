@@ -13,11 +13,24 @@ import (
 	"github.com/claudioed/product-master/internal/domain/product"
 )
 
-// skuParam returns the {sku} path segment, unescaped (an encoded '/' or
+// routedParam returns the named path segment percent-decoded exactly once.
+// chi routes on URL.RawPath when Go sets it (the client's encoding differs
+// from the default one, e.g. %2F or %2B) and on URL.Path otherwise, so
+// chi.URLParam is still escaped in the first case and already decoded in the
+// second. Unescaping unconditionally decoded the second kind twice:
+// "50%25OFF" -> "50%OFF" -> invalid escape (400), "A%2541" -> "A%41" -> "AA".
+func routedParam(r *http.Request, name string) (string, error) {
+	v := chi.URLParam(r, name)
+	if r.URL.RawPath == "" {
+		return v, nil
+	}
+	return url.PathUnescape(v)
+}
+
+// skuParam returns the {sku} path segment, decoded once (an encoded '/' or
 // space reaches the use case and is rejected there as invalid-sku).
 func skuParam(r *http.Request) (string, error) {
-	raw := chi.URLParam(r, "sku")
-	sku, err := url.PathUnescape(raw)
+	sku, err := routedParam(r, "sku")
 	if err != nil {
 		return "", product.ErrInvalidSKU
 	}
