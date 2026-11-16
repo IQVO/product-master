@@ -60,7 +60,7 @@ tags:
       JSON is snake_case.
 
 paths:
-  /products:
+  /products-canary:
     get:
       operationId: listProducts
       summary: List products
