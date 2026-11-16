@@ -54,7 +54,7 @@ help:
 	@echo "  mutation       gremlins on $(MUTATION_FAST_PKG) — the fast blocking subset"
 	@echo "  mutation-full  gremlins on $(MUTATION_FULL_PKG) — the exhaustive scheduled run"
 	@echo "  vuln           govulncheck ./... — supply-chain / stdlib CVE sensor"
-	@echo "  contract-breaking  spec breaking gates vs BASE_REF (oasdiff + asyncapi_breaking.py)"
+	@echo "  contract-breaking  spec breaking gates vs BASE_REF (oasdiff + asyncapi_breaking.py, canonical kit)"
 	@echo "  contract       scripts/contract-test.sh — Schemathesis vs apis/openapi.yaml (needs Docker + st)"
 	@echo ""
 	@echo "  check          FAST pre-commit bundle: fmt-check vet build lint test"
@@ -154,14 +154,17 @@ vuln:
 contract:
 	./scripts/contract-test.sh
 
-# Spec breaking-change gates — mirrors the `spec-breaking` CI job: oasdiff over
-# apis/openapi.yaml and scripts/harness/asyncapi_breaking.py over
-# apis/asyncapi.yaml, both against BASE_REF (default origin/develop). oasdiff runs
+# Spec breaking-change gates — local mirror of the `spec-breaking` CI job (the
+# canonical kit, docs/spec-breaking-kit.md in IQVO/warehouse-harness-template):
+# oasdiff over apis/openapi.yaml and scripts/harness/asyncapi_breaking.py over
+# apis/asyncapi.yaml (needs PyYAML: .github/requirements/asyncapi-breaking.txt),
+# both against BASE_REF (default origin/develop). oasdiff runs
 # when installed (go install github.com/oasdiff/oasdiff@v1.38.0); the events gate
 # always runs. --fail-on ERR is load-bearing: without it oasdiff prints breaking
 # changes but exits 0.
 contract-breaking:
-	python3 scripts/harness/asyncapi_breaking.py --self-test
+	python3 scripts/harness/asyncapi_breaking.py --self-check
+	python3 scripts/harness/asyncapi_breaking.py --check apis/asyncapi.yaml
 	@tmp="$$(mktemp -d)"; rc=0; \
 	git show "$(BASE_REF):apis/asyncapi.yaml" > "$$tmp/asyncapi.yaml"; \
 	python3 scripts/harness/asyncapi_breaking.py "$$tmp/asyncapi.yaml" apis/asyncapi.yaml || rc=1; \
@@ -194,4 +197,4 @@ guide-lint: ## lint agent guides: skills load, references resolve, context budge
 harness-test: ## unit-test the agent hooks (pre/post/stop) and the AsyncAPI breaking gate
 	python3 scripts/harness/test_hook.py
 	python3 scripts/harness/test_red_issue.py
-	python3 scripts/harness/asyncapi_breaking.py --self-test
+	python3 scripts/harness/test_asyncapi_breaking.py
