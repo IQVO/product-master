@@ -1,6 +1,7 @@
 asyncapi: 2.6.0
 
 info:
+  x-canary: true
   title: product-master Domain Events
   version: "1.1.0"
   contact:
