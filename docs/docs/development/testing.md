@@ -140,10 +140,10 @@ The CI `integration` job runs the same command as `make integration`
 ### Mutation testing
 
 `.gremlins.yaml` sets 1 worker, timeout coefficient 30, and thresholds
-**efficacy 95%** and **mutant coverage 95%** (gremlins fails at or below the
-threshold). The last measurement recorded there (2026-10-06, on
-`internal/domain/product`): 100% efficacy, 100% mutant coverage, 66 killed, 0
-lived.
+**efficacy 99%** and **mutant coverage 99%** (gremlins fails at or below the
+threshold). The last measurement recorded there (2026-11-15, on
+`./internal/domain`): 100% efficacy, 100% mutant coverage, 304 killed
+(`product` 148, `shared/gs1` 156), 0 lived.
 
 - `make mutation` and the `mutation-fast` CI job: `./internal/domain/product`,
   on every push and pull request (blocking).
