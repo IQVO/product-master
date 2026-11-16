@@ -98,7 +98,7 @@ channels:
         - name: product
       message:
         oneOf:
-          - $ref: "#/components/messages/ProductRegistered"
+          - $ref: "#/components/messages/ProductRegisteredCanary"
           - $ref: "#/components/messages/ProductDescriptionChanged"
           - $ref: "#/components/messages/ProductClassified"
           - $ref: "#/components/messages/ProductDimensionsDeclared"
@@ -142,8 +142,8 @@ channels:
 
 components:
   messages:
-    ProductRegistered:
-      name: ProductRegistered
+    ProductRegisteredCanary:
+      name: ProductRegisteredCanary
       title: Product registered
       summary: A SKU was registered as a product.
       description: "`type` = `com.warehouse.wms.product-master.product.ProductRegistered`; subject and key = the SKU."
@@ -163,7 +163,7 @@ components:
             subject: "SKU-1"
             time: "2026-10-06T21:00:00Z"
             datacontenttype: "application/json"
-            dataschema: "urn:warehouse:product-master:events:ProductRegistered:v1"
+            dataschema: "urn:warehouse:product-master:events:ProductRegisteredCanary:v1"
             data:
               sku: "SKU-1"
               description: "Lithium battery pack 12V"
@@ -413,10 +413,10 @@ components:
               version: 5
 
     ProductRegisteredAnalytics:
-      name: ProductRegistered
+      name: ProductRegisteredCanary
       title: Product registered (analytics)
       summary: Product registered, on the analytics stream.
-      description: "`type` = `com.warehouse.wms.product-master.product.ProductRegistered` (the same as on the integration topic); dataschema `urn:warehouse:product-master:analytics:ProductRegistered:v1`; payload equal to the integration payload."
+      description: "`type` = `com.warehouse.wms.product-master.product.ProductRegistered` (the same as on the integration topic); dataschema `urn:warehouse:product-master:analytics:ProductRegisteredCanary:v1`; payload equal to the integration payload."
       contentType: application/cloudevents+json
       tags:
         - name: analytics
@@ -433,7 +433,7 @@ components:
             subject: "SKU-1"
             time: "2026-10-06T21:00:00Z"
             datacontenttype: "application/json"
-            dataschema: "urn:warehouse:product-master:analytics:ProductRegistered:v1"
+            dataschema: "urn:warehouse:product-master:analytics:ProductRegisteredCanary:v1"
             data:
               sku: "SKU-1"
               description: "Lithium battery pack 12V"
