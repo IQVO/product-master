@@ -42,7 +42,9 @@ Source of truth: `apis/openapi.yaml`. Keep this list in sync with it.
   `Idempotency-Key` (missing = 400 `idempotency-key-required`, invalid key =
   400 `idempotency-key-invalid`, same key + other request = 409
   `idempotency-key-reused`; replays carry `Idempotency-Replayed: true`;
-  ADR 0013). Do not add another POST/PATCH without the middleware and an ADR.
+  ADR 0013). A refusal is stored only when its problem type's replay class is
+  FINAL or OUTCOME; a RETRYABLE one is released and retried (ADR 0015). Do not
+  add another POST/PATCH without the middleware and an ADR.
 - Collection GETs page with `limit` + keyset `cursor`, body `{items,nextCursor}`;
   list limit/cursor errors are `invalid-limit` / `invalid-cursor`, and an
   undeclared query parameter is `unknown-query-parameter` (no longer
