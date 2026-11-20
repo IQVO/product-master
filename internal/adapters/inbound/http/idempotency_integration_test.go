@@ -83,14 +83,24 @@ func TestREST_RetireIsIdempotentInPostgres(t *testing.T) {
 	}
 }
 
-func TestREST_RetireCachesA4xxAndConcurrentSameKeyRunsOnce(t *testing.T) {
+func TestREST_RetireCachesAFinal4xxAndConcurrentSameKeyRunsOnce(t *testing.T) {
 	srv, pool := newRESTServerPool(t)
 	seedRetirable(t, srv)
 
-	_, a, _ := keyedPost(t, srv, "/products/SKU-1/pack-levels/PALLET/retirements", "", "pg-404")
-	st, b, h := keyedPost(t, srv, "/products/SKU-1/pack-levels/PALLET/retirements", "", "pg-404")
-	if st != http.StatusNotFound || a != b || h.Get("Idempotency-Replayed") != "true" {
-		t.Fatalf("4xx replay = %d %q", st, h.Get("Idempotency-Replayed"))
+	// pack-level-not-found is RETRYABLE (ADR 0015): the refusal is NOT stored,
+	// so the same key re-executes the same 404 with no replay header.
+	_, a, ha := keyedPost(t, srv, "/products/SKU-1/pack-levels/PALLET/retirements", "", "pg-404")
+	st, b, hb := keyedPost(t, srv, "/products/SKU-1/pack-levels/PALLET/retirements", "", "pg-404")
+	if st != http.StatusNotFound || a != b || ha.Get("Idempotency-Replayed") != "" || hb.Get("Idempotency-Replayed") != "" {
+		t.Fatalf("RETRYABLE 4xx retry = %d %q %q", st, hb.Get("Idempotency-Replayed"), b)
+	}
+	// invalid-reason is FINAL (a function of the body alone): stored and
+	// replayed byte for byte.
+	long := `{"reason":"` + strings.Repeat("x", 201) + `"}`
+	_, fa, _ := keyedPost(t, srv, "/products/SKU-1/pack-levels/EACH/retirements", long, "pg-400")
+	st, fb, hf := keyedPost(t, srv, "/products/SKU-1/pack-levels/EACH/retirements", long, "pg-400")
+	if st != http.StatusBadRequest || fa != fb || hf.Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("FINAL 4xx replay = %d %q", st, hf.Get("Idempotency-Replayed"))
 	}
 
 	var wg sync.WaitGroup

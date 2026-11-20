@@ -221,6 +221,11 @@ Writes are PUT-shaped against idempotent resource paths. The one `POST`
 missing key is `400 idempotency-key-required`, a malformed one `400
 idempotency-key-invalid`, the same key with another method, path or body `409
 idempotency-key-reused`, and a replay carries `Idempotency-Replayed: true`.
+Whether a refusal is stored is its problem type's replay class (ADR 0015): a
+FINAL refusal is stored and replayed, a RETRYABLE one (nothing committed, the
+answer depends on state that can change — `404 pack-level-not-found`,
+`409 concurrent-modification`) is not stored, its key is released, and a retry
+executes again.
 Collections (`GET /products`, `GET /products/{sku}/pack-levels`) answer
 `{items,nextCursor}` with `limit` and `cursor`; any other query parameter is
 `400 unknown-query-parameter`. Problem types are catalogued in

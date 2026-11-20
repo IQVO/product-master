@@ -37,6 +37,13 @@ every PUT; only the retirement is a POST.
    (retention is at least 24 h). The port is `ports.IdempotencyStore`; the
    in-memory double (`memory.IdempotencyStore`) serves unit and BDD tests only
    (ADR 0010). The header is required in every runtime mode.
+
+   > **2026-11-20 — ADR 0015:** "2xx and 4xx answers are stored and replayed"
+   > is now per problem type: every catalogue entry declares a replay class
+   > (FINAL, OUTCOME, RETRYABLE); a RETRYABLE refusal (nothing committed, the
+   > answer depends on state that can change) is not stored and its key is
+   > released. See
+   > [ADR 0015](./0015-every-problem-type-has-a-replay-class.md).
 3. **Pagination.** `GET /products` keeps its SKU order but now speaks the
    fleet cursor (`page` package: base64url `{s,i}`), `limit` 1-500 and the
    problems `invalid-limit`, `invalid-cursor`, `unknown-query-parameter` (the

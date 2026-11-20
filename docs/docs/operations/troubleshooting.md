@@ -93,7 +93,11 @@ Not produced by this service: there is no `412` (no `If-Match`/ETag
 precondition; the version guard is internal), no `422` (validation errors are
 `400`, key reuse is `409`). Every `PUT` is idempotent by itself (repeating the
 same request changes nothing and returns `200`) and needs no key; the one
-`POST` is keyed. There is
+`POST` is keyed: the first answer is stored and replayed under the same key
+unless its problem type is RETRYABLE (ADR 0015) — a refusal that depends on
+state that can change (`404 pack-level-not-found`, `409 concurrent-modification`)
+is not stored, the key is released, and a retry executes the real work again.
+There is
 no circuit breaker either: the service has no outbound HTTP client, and Kafka
 failures are absorbed by the outbox.
 
