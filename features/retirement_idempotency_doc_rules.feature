@@ -67,18 +67,20 @@ Feature: The keyed retirement POST
     And the problem type is "idempotency-key-reused"
     And the outbox holds 4 messages
 
-  Scenario: A refused request is stored too, so the same key replays the 404 even after the level exists
+  Scenario: A retryable refusal is not stored: the same key retries the real work once the state changes
     When I POST "/products/SKU-1/pack-levels/PALLET/retirements" with body '{}' and the Idempotency-Key "retire-pallet-1"
     Then the response status is 404
     And the problem type is "pack-level-not-found"
+    And the response has no header "Idempotency-Replayed"
     Given the PUT "/products/SKU-1/pack-levels/PALLET" with body '{"gtin":"54006381333936","childGtin":"24006381333935","qtyOfChild":50}' has been accepted
     When I POST "/products/SKU-1/pack-levels/PALLET/retirements" with body '{}' and the Idempotency-Key "retire-pallet-1"
-    Then the response status is 404
-    And the problem type is "pack-level-not-found"
-    And the response header "Idempotency-Replayed" is "true"
+    Then the response status is 200
+    And the response field "active" is "false"
+    And the response has no header "Idempotency-Replayed"
     When I POST "/products/SKU-1/pack-levels/PALLET/retirements" with body '{}' and the Idempotency-Key "retire-pallet-2"
     Then the response status is 200
     And the response field "active" is "false"
+    And the response has no header "Idempotency-Replayed"
 
   Scenario Outline: A body is at most 64 KiB on the keyed POST too
     When I POST "/products/SKU-1/pack-levels/CASE/retirements" with a JSON body padded with leading spaces to <bytes> bytes: '{"reason":"discontinued"}'

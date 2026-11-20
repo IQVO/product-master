@@ -53,20 +53,35 @@ func TestRetire_SameKeyDifferentRequestIs409(t *testing.T) {
 	expectProblem(t, f.doWith(t, http.MethodPost, "/products/SKU-1/pack-levels/INNER/retirements", `{"reason":"a"}`, key("k-2")), http.StatusConflict, "idempotency-key-reused")
 }
 
-func TestRetire_4xxIsCachedAnd5xxIsNot(t *testing.T) {
+func TestRetire_Final4xxIsCachedRetryable4xxAnd5xxAreNot(t *testing.T) {
+	// invalid-reason is FINAL (ADR 0015): a function of the body alone, so
+	// the refusal is stored and replayed byte for byte.
+	long := `{"reason":"` + strings.Repeat("x", 201) + `"}`
 	f := retireFixture(t)
-	notFound := "/products/SKU-1/pack-levels/PALLET/retirements"
-	a := f.doWith(t, http.MethodPost, notFound, "", key("k-4"))
-	b := f.doWith(t, http.MethodPost, notFound, "", key("k-4"))
-	expectProblem(t, a, http.StatusNotFound, "pack-level-not-found")
-	if b.status != http.StatusNotFound || b.replayed != "true" || b.raw != a.raw {
-		t.Fatalf("4xx replay = %d %q %s", b.status, b.replayed, b.raw)
+	a := f.doWith(t, http.MethodPost, retirePath, long, key("k-4a"))
+	expectProblem(t, a, http.StatusBadRequest, "invalid-reason")
+	b := f.doWith(t, http.MethodPost, retirePath, long, key("k-4a"))
+	if b.status != http.StatusBadRequest || b.replayed != "true" || b.raw != a.raw {
+		t.Fatalf("FINAL 4xx replay = %d %q %s", b.status, b.replayed, b.raw)
 	}
+	// a 5xx is never stored: the retry under the same key executes again.
 	f.repo.saveErr = errDB
 	expectProblem(t, f.doWith(t, http.MethodPost, retirePath, "", key("k-5")), http.StatusInternalServerError, "internal-error")
 	f.repo.saveErr = nil
 	if r := f.doWith(t, http.MethodPost, retirePath, "", key("k-5")); r.status != http.StatusOK || r.replayed != "" {
 		t.Fatalf("retry after 5xx = %d replayed=%q %s", r.status, r.replayed, r.raw)
+	}
+	// pack-level-not-found is RETRYABLE: another request can declare the
+	// level, so the refusal is NOT stored and the same key re-executes.
+	notFound := "/products/SKU-1/pack-levels/PALLET/retirements"
+	expectProblem(t, f.doWith(t, http.MethodPost, notFound, "", key("k-4")), http.StatusNotFound, "pack-level-not-found")
+	if d := f.doWith(t, http.MethodPost, notFound, "", key("k-4")); d.status != http.StatusNotFound || d.replayed != "" {
+		t.Fatalf("RETRYABLE 4xx retry = %d replayed=%q, want a fresh execution of the same 404", d.status, d.replayed)
+	}
+	// the released key is free: another body under it is a new request (the
+	// level is retired by k-5 above; retiring again is 200 and changes nothing).
+	if r := f.doWith(t, http.MethodPost, retirePath, `{"reason":"other"}`, key("k-4")); r.status != http.StatusOK {
+		t.Fatalf("another body under the released key = %d %s, want a new request", r.status, r.raw)
 	}
 }
 
