@@ -53,6 +53,14 @@ func (c *competingWriter) Save(ctx context.Context, p *product.Product, loadedVe
 	return c.ProductRepository.Save(ctx, p, loadedVersion)
 }
 
+// arm makes the next Save bump bumpSKU's version again (the seeding writes
+// consumed the constructor's arming).
+func (c *competingWriter) arm() {
+	c.mu.Lock()
+	c.armed = true
+	c.mu.Unlock()
+}
+
 // newRetireServerPool boots the real router over a private migrated clone,
 // with the retire use case's product repository wrapped by competingWriter.
 func newRetireServerPool(t *testing.T, bumpSKU string) (*httptest.Server, *pgxpool.Pool, *competingWriter) {
@@ -97,8 +105,9 @@ func keyRows(t *testing.T, pool *pgxpool.Pool, key string) int {
 // is absent and its retry under the same key EXECUTES (and is then stored and
 // replayed).
 func TestREST_ConcurrentModificationRefusalIsNotStoredAndRetriesExecute(t *testing.T) {
-	srv, pool, _ := newRetireServerPool(t, "SKU-1")
+	srv, pool, compete := newRetireServerPool(t, "SKU-1")
 	seedRetirable(t, srv)
+	compete.arm() // the seeding writes consumed the constructor's arming
 	const key = "k-concurrent"
 	path := "/products/SKU-1/pack-levels/EACH/retirements"
 	body := `{"reason":"discontinued"}`
@@ -149,7 +158,7 @@ func TestREST_ProductNotFoundRefusalIsNotStoredAndRetriesExecute(t *testing.T) {
 	if st, _, _ := restDo(t, srv, http.MethodPut, "/products/SKU-404", `{}`); st != http.StatusCreated {
 		t.Fatalf("register SKU-404 = %d, want 201", st)
 	}
-	if st, _, _ := restDo(t, srv, http.MethodPut, "/products/SKU-404/pack-levels/EACH", `{"gtin":"14006381333932","isOrderable":true}`); st != http.StatusCreated {
+	if st, _, _ := restDo(t, srv, http.MethodPut, "/products/SKU-404/pack-levels/EACH", `{"gtin":"04006381333948","isOrderable":true}`); st != http.StatusCreated {
 		t.Fatalf("declare EACH of SKU-404 = %d, want 201", st)
 	}
 
