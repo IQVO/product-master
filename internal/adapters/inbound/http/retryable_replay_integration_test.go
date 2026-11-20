@@ -86,7 +86,11 @@ func newRetireServerPool(t *testing.T, bumpSKU string) (*httptest.Server, *pgxpo
 
 func keyRows(t *testing.T, pool *pgxpool.Pool, key string) int {
 	t.Helper()
-	return count(t, pool, `SELECT count(*) FROM idempotency_keys WHERE key = $1`, key)
+	var n int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM idempotency_keys WHERE key = $1`, key).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // The loser of an optimistic-lock race: the 409 is RETRYABLE, so its key row
