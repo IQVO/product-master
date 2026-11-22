@@ -48,15 +48,33 @@ BIN="$(mktemp -d)/api"
 go build -o "$BIN" ./cmd/api
 
 # Postgres: the api binary runs its own boot migrations (adapters.go), so
-# an empty database is all it needs. Same wait condition as pgtest.go.
+# an empty database is all it needs.
+#
+# Readiness is probed over TCP (-h 127.0.0.1), never over the unix socket.
+# The postgres image's entrypoint first runs initdb with a TEMPORARY server
+# that listens on the unix socket only (listen_addresses=''), stops it, and
+# only then starts the real server. A socket probe answers "accepting" from
+# that temporary server, and the next probe lands in its shutdown/restart
+# window (pg_isready exit 1 "rejecting" or 2 "no response") — which is how
+# this job went red on develop. Only the final server listens on TCP, so a
+# TCP probe is the condition pgtest.go waits for (the SECOND "database system
+# is ready to accept connections" log line) without parsing logs.
+pg_ready() {
+  docker exec "$PG_NAME" pg_isready -q -h 127.0.0.1 -p 5432 -U contract -d product_master
+}
 docker run -d --rm --name "$PG_NAME" \
   -e POSTGRES_USER=contract -e POSTGRES_PASSWORD=contract -e POSTGRES_DB=product_master \
   -p "127.0.0.1:${PG_PORT}:5432" postgres:16-alpine >/dev/null
+pg_up=""
 for _ in $(seq 1 60); do
-  if docker exec "$PG_NAME" pg_isready -U contract -d product_master >/dev/null 2>&1; then break; fi
+  if pg_ready; then pg_up=1; break; fi
   sleep 0.5
 done
-docker exec "$PG_NAME" pg_isready -U contract -d product_master >/dev/null # fail loudly
+if [ -z "$pg_up" ]; then # fail loudly
+  echo "postgres never accepted TCP connections within 30s; container log tail:"
+  docker logs --tail 30 "$PG_NAME" 2>&1 || true
+  exit 1
+fi
 
 # Kafka: single-broker KRaft cluster — the explicit env set mirrors what
 # the testcontainers kafka module generates for this image (internal/testing/
