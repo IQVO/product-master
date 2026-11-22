@@ -97,12 +97,17 @@ Every **unit** event (not the three pack-level events) also goes, in the same
 outbox transaction and under the same CloudEvents id, to
 `warehouse.product-master.analytics` (ADR 0006).
 
-**Downstream consumers** — six contexts keep local copies from
+**Downstream consumers** — nine contexts keep local copies from
 `warehouse.product-master.events`, all built on their `develop` and wired in
-Kafka mode in warehouse-infra: inventory-storage, order-management,
-wes-work-planning, fulfillment-execution and slotting-optimization consume
+warehouse-infra: inventory-storage, order-management, wes-work-planning,
+fulfillment-execution, slotting-optimization and returns-processing consume
 `ProductClassified` (slotting-optimization also `ProductDimensionsDeclared`
 and `ProductMeasured`), and inbound-receiving consumes `ProductRegistered`.
+The pack-level events are consumed too: `ProductPackLevelDeclared` and
+`ProductPackLevelRetired` by inbound-receiving, inventory-storage,
+slotting-optimization, pick-face-replenishment, fulfillment-execution,
+wes-work-planning and network-inventory-planning, `ProductPackLevelMeasured`
+by slotting-optimization and wes-work-planning.
 `ProductDescriptionChanged` has no consumer. **Nothing flows in**: the legacy
 classification importer from inventory-storage was removed at stage E of
 [ADR 0003](docs/adr/0003-migration-from-inventory-storage.md) (finished
@@ -216,6 +221,11 @@ Writes are PUT-shaped against idempotent resource paths. The one `POST`
 missing key is `400 idempotency-key-required`, a malformed one `400
 idempotency-key-invalid`, the same key with another method, path or body `409
 idempotency-key-reused`, and a replay carries `Idempotency-Replayed: true`.
+Whether a refusal is stored is its problem type's replay class (ADR 0015): a
+FINAL refusal is stored and replayed, a RETRYABLE one (nothing committed, the
+answer depends on state that can change — `404 pack-level-not-found`,
+`409 concurrent-modification`) is not stored, its key is released, and a retry
+executes again.
 Collections (`GET /products`, `GET /products/{sku}/pack-levels`) answer
 `{items,nextCursor}` with `limit` and `cursor`; any other query parameter is
 `400 unknown-query-parameter`. Problem types are catalogued in

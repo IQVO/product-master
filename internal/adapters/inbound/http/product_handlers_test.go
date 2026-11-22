@@ -46,6 +46,31 @@ func TestRegisterProduct_Statuses(t *testing.T) {
 	}
 }
 
+// The {sku} path segment is percent-decoded exactly once. chi routes on
+// URL.RawPath when Go sets it (the client's encoding differs from the default
+// one, e.g. %2B) and on URL.Path otherwise, so chi.URLParam is still escaped in
+// the first case and ALREADY decoded in the second; unescaping unconditionally
+// decoded the second kind twice ("50%25OFF" -> "50%OFF" -> invalid escape,
+// "A%2541" -> "A%41" -> "AA").
+func TestSKUPathSegmentIsDecodedOnce(t *testing.T) {
+	f := newFixture(t)
+	for _, c := range []struct{ path, wantSKU string }{
+		{"/products/50%25OFF", "50%OFF"}, // second decode: invalid URL escape "%OF" -> 400
+		{"/products/A%2541", "A%41"},     // second decode silently resolved to "AA"
+		{"/products/A%2BB", "A+B"},       // RawPath is set: the one decode must still happen
+		{"/products/caf%C3%A9", "caf\u00e9"},
+	} {
+		put := f.mustDo(t, http.MethodPut, c.path, `{"description":"d"}`, http.StatusCreated)
+		if put.body["sku"] != c.wantSKU {
+			t.Errorf("PUT %s registered sku %q, want %q", c.path, put.body["sku"], c.wantSKU)
+		}
+		get := f.mustDo(t, http.MethodGet, c.path, "", http.StatusOK)
+		if get.body["sku"] != c.wantSKU {
+			t.Errorf("GET %s resolved sku %q, want %q", c.path, get.body["sku"], c.wantSKU)
+		}
+	}
+}
+
 func TestGetProduct_Statuses(t *testing.T) {
 	f := newFixture(t)
 	f.mustDo(t, http.MethodPut, "/products/SKU-1", `{"description":"d"}`, http.StatusCreated)

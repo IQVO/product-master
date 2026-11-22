@@ -30,9 +30,11 @@ MUTATION_FAST_PKG  := ./internal/domain/product
 # The exhaustive scheduled run — kept in sync with the `mutation` CI job.
 MUTATION_FULL_PKG  := ./internal/domain
 
+BASE_REF           ?= origin/develop
+
 .DEFAULT_GOAL := help
 
-.PHONY: help build vet fmt fmt-check lint test coverage integration bdd arch-test mutation mutation-full vuln check check-all
+.PHONY: help build vet fmt fmt-check lint test coverage integration bdd arch-test mutation mutation-full vuln contract contract-breaking check check-all
 
 help:
 	@echo "product-master — local quality gate (targets mirror .github/workflows/ci.yml)"
@@ -52,6 +54,8 @@ help:
 	@echo "  mutation       gremlins on $(MUTATION_FAST_PKG) — the fast blocking subset"
 	@echo "  mutation-full  gremlins on $(MUTATION_FULL_PKG) — the exhaustive scheduled run"
 	@echo "  vuln           govulncheck ./... — supply-chain / stdlib CVE sensor"
+	@echo "  contract-breaking  spec breaking gates vs BASE_REF (oasdiff + asyncapi_breaking.py, canonical kit)"
+	@echo "  contract       scripts/contract-test.sh — Schemathesis vs apis/openapi.yaml (needs Docker + st)"
 	@echo ""
 	@echo "  check          FAST pre-commit bundle: fmt-check vet build lint test"
 	@echo "  check-all      check + coverage arch-test bdd — run this before pushing"
@@ -143,6 +147,35 @@ vuln:
 	fi
 	$(GOVULNCHECK) ./...
 
+# Property-based contract tests against apis/openapi.yaml — mirrors the
+# `contract` CI job. Not part of check/check-all (needs Python tooling
+# with `st` on PATH, Docker for the Postgres/Kafka containers, and a free
+# loopback port; see scripts/contract-test.sh).
+contract:
+	./scripts/contract-test.sh
+
+# Spec breaking-change gates — local mirror of the `spec-breaking` CI job (the
+# canonical kit, docs/spec-breaking-kit.md in IQVO/warehouse-harness-template):
+# oasdiff over apis/openapi.yaml and scripts/harness/asyncapi_breaking.py over
+# apis/asyncapi.yaml (needs PyYAML: .github/requirements/asyncapi-breaking.txt),
+# both against BASE_REF (default origin/develop). oasdiff runs
+# when installed (go install github.com/oasdiff/oasdiff@v1.38.0); the events gate
+# always runs. --fail-on ERR is load-bearing: without it oasdiff prints breaking
+# changes but exits 0.
+contract-breaking:
+	python3 scripts/harness/asyncapi_breaking.py --self-check
+	python3 scripts/harness/asyncapi_breaking.py --check apis/asyncapi.yaml
+	@tmp="$$(mktemp -d)"; rc=0; \
+	git show "$(BASE_REF):apis/asyncapi.yaml" > "$$tmp/asyncapi.yaml"; \
+	python3 scripts/harness/asyncapi_breaking.py "$$tmp/asyncapi.yaml" apis/asyncapi.yaml || rc=1; \
+	if command -v oasdiff >/dev/null 2>&1; then \
+		git show "$(BASE_REF):apis/openapi.yaml" > "$$tmp/openapi.yaml"; \
+		oasdiff breaking --fail-on ERR "$$tmp/openapi.yaml" apis/openapi.yaml || rc=1; \
+	else \
+		echo "oasdiff not installed — REST breaking gate skipped locally (go install github.com/oasdiff/oasdiff@v1.38.0)"; \
+	fi; \
+	rm -rf "$$tmp"; exit $$rc
+
 # The fast self-correction loop: run this after every change, before committing.
 check: fmt-check vet build lint test
 
@@ -161,6 +194,7 @@ check-fast: fmt-check vet arch-test
 guide-lint: ## lint agent guides: skills load, references resolve, context budget
 	python3 scripts/harness/guide_lint.py
 
-harness-test: ## unit-test the agent hooks (pre/post/stop)
+harness-test: ## unit-test the agent hooks (pre/post/stop) and the AsyncAPI breaking gate
 	python3 scripts/harness/test_hook.py
 	python3 scripts/harness/test_red_issue.py
+	python3 scripts/harness/test_asyncapi_breaking.py

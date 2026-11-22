@@ -34,21 +34,39 @@ service.
 
 ### BDD features
 
-9 feature files, 66 scenarios (16 of them Scenario Outlines). The two
-legacy-import feature files were deleted with the importer at stage E
-(product-master #48).
+17 feature files, 166 scenario definitions (56 of them Scenario Outlines),
+303 scenarios executed once every Outline Examples row is expanded (the
+`N scenarios` line of `go test ./features -run TestFeatures -count=1 -v`).
+The two legacy-import feature files were deleted with the importer at
+stage E (product-master #48).
+
+The `*_doc_rules.feature` files pin the rules the context documentation
+states (business-context, use-cases, aggregate canvas, ubiquitous language,
+domain events, troubleshooting), one rule per scenario with boundaries as
+Outline rows. Their steps are in `features/steps_rules_test.go` and
+`features/steps_lifecycle_test.go`; the harness in `features/features_test.go`
+has a settable clock, keyed-POST helpers and an analytics rig that runs the
+real projector and report router.
 
 | Feature file | Scenarios (of which outlines) |
 | --- | --- |
 | `features/register_product.feature` | 6 (1) |
+| `features/registration_doc_rules.feature` | 10 (6): SKU and description bounds, body cap, version ledger |
 | `features/classify_product.feature` | 6 (1) |
 | `features/classification_rules.feature` | 6 (2) |
+| `features/classification_doc_rules.feature` | 5 (4): validation before lookup, exact spellings, tag combinations |
 | `features/physical_profile.feature` | 8 (1) |
 | `features/physical_profile_rules.feature` | 8 (4) |
+| `features/physical_profile_doc_rules.feature` | 12 (3): declare, measure, discrepancy, bounds, device id |
 | `features/list_products.feature` | 5 (1) |
 | `features/list_products_rules.feature` | 3 (1) |
+| `features/listing_doc_rules.feature` | 6 (3): page size, limit, cursor, byte-order sort, filters |
 | `features/product_contract.feature` | 6 (3) |
 | `features/packaging.feature` | 18 (2): the pack levels of ADR 0011 (GS1 immutability, GTIN uniqueness, check digit, indicator digit 9, the lower child level) |
+| `features/packaging_doc_rules.feature` | 29 (17): GTIN shapes, quantities and units per pack, immutability, case weight against contents, retirement, listing |
+| `features/retirement_idempotency_doc_rules.feature` | 7 (1): Idempotency-Key slugs, replay, stored refusals |
+| `features/analytics_doc_rules.feature` | 19 (4): analytics stream, freshness, day buckets, ranges, coverage, redelivery, dead letter |
+| `features/lifecycle_doc_rules.feature` | 12 (2): CloudEvents type, subject and dataschema, version ledger, supersede, no delete |
 
 ### Integration tests
 
@@ -122,10 +140,10 @@ The CI `integration` job runs the same command as `make integration`
 ### Mutation testing
 
 `.gremlins.yaml` sets 1 worker, timeout coefficient 30, and thresholds
-**efficacy 95%** and **mutant coverage 95%** (gremlins fails at or below the
-threshold). The last measurement recorded there (2026-10-06, on
-`internal/domain/product`): 100% efficacy, 100% mutant coverage, 66 killed, 0
-lived.
+**efficacy 99%** and **mutant coverage 99%** (gremlins fails at or below the
+threshold). The last measurement recorded there (2026-11-15, on
+`./internal/domain`): 100% efficacy, 100% mutant coverage, 304 killed
+(`product` 148, `shared/gs1` 156), 0 lived.
 
 - `make mutation` and the `mutation-fast` CI job: `./internal/domain/product`,
   on every push and pull request (blocking).

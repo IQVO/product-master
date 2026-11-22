@@ -379,7 +379,6 @@ components:
               version: 4
 
     ProductPackLevelMeasured:
-      x-no-consumer-reason: "pending: measurement fact (ADR 0002/0011); no consumer declared in any fleet spec yet"
       name: ProductPackLevelMeasured
       title: Product pack level measured
       summary: A measurement of one pack of an active level was recorded.

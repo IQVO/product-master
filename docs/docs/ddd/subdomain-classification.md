@@ -59,17 +59,20 @@ restated from memory:
 
 | Context | Classification | Tier | Relationship to product-master |
 | --- | --- | --- | --- |
-| `inventory-storage` | Core | `wms` | Downstream consumer of `ProductClassified` for stow placement and DOT segregation. It was also upstream during the migration (legacy `ProductClassified` on `warehouse.inventory.events`, ADR 0003); that edge was removed at stage E |
+| `inventory-storage` | Core | `wms` | Downstream consumer of `ProductClassified` for stow placement and DOT segregation, and of `ProductPackLevelDeclared` and `ProductPackLevelRetired` (local `PackagingView`). It was also upstream during the migration (legacy `ProductClassified` on `warehouse.inventory.events`, ADR 0003); that edge was removed at stage E |
 | `order-management` | Generic/Supporting | `wes` | Downstream consumer of `ProductClassified` (intake enrichment) |
-| `wes-work-planning` | Core | `wes` | Downstream consumer of `ProductClassified` (release capabilities, fragile flag) |
-| `fulfillment-execution` | Core | `wes` | Downstream consumer of `ProductClassified` (seal-time segregation) |
-| `slotting-optimization` | Supporting | `wms` | Downstream consumer of `ProductClassified`, `ProductDimensionsDeclared` and `ProductMeasured` (handling class and unit size for slot plans) |
-| `inbound-receiving` | Supporting | `wms` | Downstream consumer of `ProductRegistered` (`known_skus` copy: an ASN line must name a known SKU) |
+| `wes-work-planning` | Core | `wes` | Downstream consumer of `ProductClassified` (release capabilities, fragile flag) and of the three pack-level events (local `PackView`) |
+| `fulfillment-execution` | Core | `wes` | Downstream consumer of `ProductClassified` (seal-time segregation) and of `ProductPackLevelDeclared` and `ProductPackLevelRetired` (local `PackView`) |
+| `slotting-optimization` | Supporting | `wms` | Downstream consumer of `ProductClassified`, `ProductDimensionsDeclared` and `ProductMeasured` (handling class and unit size for slot plans) and of the three pack-level events (local `PackLevelView`) |
+| `inbound-receiving` | Supporting | `wms` | Downstream consumer of `ProductRegistered` (`known_skus` copy: an ASN line must name a known SKU) and of `ProductPackLevelDeclared` and `ProductPackLevelRetired` (packaging view) |
+| `pick-face-replenishment` | Supporting | `wms` | Downstream consumer of `ProductPackLevelDeclared` and `ProductPackLevelRetired` (the eaches factor per pack level) |
+| `network-inventory-planning` | Core | `wes` | Downstream consumer of `ProductPackLevelDeclared` and `ProductPackLevelRetired` (local `pack_levels` view for case-multiple transfers) |
+| `returns-processing` | Supporting | `wms` | Downstream consumer of `ProductClassified` (hazmat flag, DOT class and temperature class for the disposition policy) |
 | `warehouse-ops-agent` | Supporting | `wes` (publishes no events) | Reads the four MCP tools |
 | `warehouse-planning` | Core | `wes` | Named by ADR 0002 as a future user of the physical profile; no consumer is built |
 
-The pattern is the usual one for a Supporting context: it is upstream of three
-Core contexts and three others (six consumers in all), which keep their own copy of the facts from the Published
+The pattern is the usual one for a Supporting context: it is upstream of four
+Core contexts and five others (nine consumers in all), which keep their own copy of the facts from the Published
 Language (`warehouse.product-master.events`) instead of calling it at request
 time. See [Downstream consumers](/docs/ecosystem/downstream-consumers) and the
 [context map](/docs/ddd/context-map).

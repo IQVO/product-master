@@ -30,7 +30,7 @@ question: stock lives in `inventory-storage`.
 | Read side | Analytics stream, `cmd/product-projector` and `cmd/product-reports` (master data quality report, [ADR 0006](/docs/adr/0006-analytics-read-side)) |
 | UI | `productmaster_mfe` Module Federation remote (`web/`), hosted by the warehouse-console shell |
 | Deployed | kind cluster via warehouse-infra: Kong `/api/product-master`, `/api/product-master/reports` and `/api/mcp/product-master`, web gateway `/mfes/product-master/` (see [Runtime surface](/docs/overview/context#runtime-surface)) |
-| Integration | Kafka CloudEvents 1.0 (structured mode), transactional outbox for publishing; six sibling contexts consume `warehouse.product-master.events` |
+| Integration | Kafka CloudEvents 1.0 (structured mode), transactional outbox for publishing; nine sibling contexts consume `warehouse.product-master.events` |
 | Auth | None on REST or MCP (fleet-wide revert of 2026-09-11) |
 
 :::note Study project

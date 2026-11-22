@@ -83,7 +83,7 @@ Source: `cmd/api/main.go`, `cmd/mcp/main.go`, `cmd/mcp/router.go`,
 `cmd/api` consumes no topic: the ADR 0003 legacy importer was removed at
 stage E (2026-10-17).
 Omits: Kong and the Nginx web gateway, the OpenTelemetry Collector and the
-six downstream contexts that consume `warehouse.product-master.events` (see
+nine downstream contexts that consume `warehouse.product-master.events` (see
 [Downstream consumers](/docs/ecosystem/downstream-consumers)).
 
 ## Data stores

@@ -48,6 +48,7 @@ for the procedures, the [runbook](/docs/operations/runbook).
 | `GET /reports/master-data-quality` returns `400 invalid-report-range` | `from`/`to` not RFC 3339, `from` not before `to`, or the range is longer than 366 days. | The `detail` field names the rule. | Send RFC 3339 timestamps, e.g. `2026-10-01T00:00:00Z`. |
 | Reports return `500 report-store-error` | The analytical query failed (connection, 15s statement timeout). | `report query failed` ERROR log with the real error. | Fix the database; narrow the range if it times out. |
 | `404` for `http://localhost:8000/api/product-master/reports/...` | The reports HTTPRoute (`charts/product-master/templates/reports-route.yaml`, path `/api/product-master/reports`) is missing or not accepted, so Kong matches the OLTP API's `/api/product-master` route, which has no `/reports` path. warehouse-infra recorded this on 2026-10-07, before the route moved into this chart (`8c22a05`); it has not been re-tested since. | `kubectl -n warehouse-systems get httproute` lists `product-master-reports`; the same request through a port-forward works. | Check `analytics.enabled` and `analytics.reports.route.enabled`; meanwhile `kubectl -n warehouse-systems port-forward svc/product-master-reports 8092:80`. |
+| `404` for `/api/product-master/reports/...` while the reports HTTPRoute is accepted | Kong's traditional router gives the API prefix and the reports prefix the same regex priority, so their order is unspecified. | `kubectl get httproute product-master-reports -o yaml`: `konghq.com/regex-priority` must be `"10"`. | The chart sets it in `reports-route.yaml`; redeploy the chart if it is missing. |
 
 ## Classification source `legacy-import`
 
@@ -78,7 +79,7 @@ All errors are RFC 7807 documents with `type` =
 | `404 product-not-found` | The SKU is not registered. Attributes of an unknown SKU are never an implicit registration. | `PUT /products/{sku}` first. |
 | `404 product-classification-not-found` | `GET .../classification` on a registered but unclassified product. | Classify it, or read `GET /products/{sku}`. |
 | `409 stale-measurement` | The measurement is older than the one already recorded (unit or pack level). | Send only newer readings. |
-| `409 pack-quantity-immutable` | A declaration changes `qtyOfChild`, `unitsPerPack` or `childGtin` of an ACTIVE level under its existing GTIN (GS1: a new quantity is a new GTIN). | Declare the level with the NEW GTIN (it end-dates the old one), then re-declare the levels above it. |
+| `409 pack-quantity-immutable` | A declaration changes `qtyOfChild`, `unitsPerPack` or `childGtin` of an ACTIVE level under its existing GTIN (GS1: a new quantity is a new GTIN). | Declare the level with the NEW GTIN (it end-dates the old one). A level above it does not follow: its `childGtin` still names the end-dated level, so re-declaring it under its OLD GTIN with the new child is the same `409`, and under any GTIN with a retired child it is `409 pack-level-order`. Declare each level above with a NEW GTIN whose `childGtin` is the new level. |
 | `409 gtin-already-assigned` | The GTIN already identifies another SKU's level, another level of this SKU, or a retired level (GTINs are never reused). | Use the right GTIN; resolve the holder with `GET /gtins/{gtin}`. |
 | `409 pack-level-order` | A level above EACH names no `childGtin`, or the child is not an ACTIVE, lower level of this product. | Declare the lower level first. |
 | `409 pack-dimensions-below-contents` | A pack's declared or measured weight is below `qtyOfChild` times the child's known weight. | Check the units (g) and the child weight. |
@@ -92,7 +93,11 @@ Not produced by this service: there is no `412` (no `If-Match`/ETag
 precondition; the version guard is internal), no `422` (validation errors are
 `400`, key reuse is `409`). Every `PUT` is idempotent by itself (repeating the
 same request changes nothing and returns `200`) and needs no key; the one
-`POST` is keyed. There is
+`POST` is keyed: the first answer is stored and replayed under the same key
+unless its problem type is RETRYABLE (ADR 0015) — a refusal that depends on
+state that can change (`404 pack-level-not-found`, `409 concurrent-modification`)
+is not stored, the key is released, and a retry executes the real work again.
+There is
 no circuit breaker either: the service has no outbound HTTP client, and Kafka
 failures are absorbed by the outbox.
 

@@ -32,6 +32,9 @@ flowchart LR
   FE["fulfillment-execution<br/>Core"]
   SO["slotting-optimization<br/>Supporting"]
   IR["inbound-receiving<br/>Supporting"]
+  PFR["pick-face-replenishment<br/>Supporting"]
+  NIP["network-inventory-planning<br/>Core"]
+  RP["returns-processing<br/>Supporting"]
   OPS["warehouse-ops-agent"]
   CON["warehouse-console<br/>hosting productmaster_mfe"]
 
@@ -41,6 +44,9 @@ flowchart LR
   PM -- "warehouse.product-master.events" --> FE
   PM -- "warehouse.product-master.events" --> SO
   PM -- "warehouse.product-master.events" --> IR
+  PM -- "warehouse.product-master.events" --> PFR
+  PM -- "warehouse.product-master.events" --> NIP
+  PM -- "warehouse.product-master.events" --> RP
   OPS -- "MCP read tools" --> PM
   CON -- "REST via Kong" --> PM
 ```
@@ -54,10 +60,13 @@ Omits: the Kafka broker, Kong, operators calling REST directly and the
 patterns on each edge (see the [context map](/docs/ddd/context-map) for
 those).
 
-inventory-storage, order-management, wes-work-planning and
-fulfillment-execution consume only `ProductClassified`; slotting-optimization
-also consumes `ProductDimensionsDeclared` and `ProductMeasured`;
-inbound-receiving consumes only `ProductRegistered`. Nothing flows in: the
+order-management and returns-processing consume only `ProductClassified`;
+inventory-storage, wes-work-planning and fulfillment-execution consume
+`ProductClassified` and the pack-level events; slotting-optimization also
+consumes `ProductDimensionsDeclared`, `ProductMeasured` and the pack-level
+events; inbound-receiving consumes `ProductRegistered` and the pack-level
+events; pick-face-replenishment and network-inventory-planning consume only
+`ProductPackLevelDeclared` and `ProductPackLevelRetired`. Nothing flows in: the
 legacy edge from inventory-storage (ADR 0003) was removed at stage E. See
 [Downstream consumers](/docs/ecosystem/downstream-consumers).
 

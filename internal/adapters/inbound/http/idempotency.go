@@ -8,7 +8,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
 
 	"github.com/claudioed/product-master/internal/application/idempotency"
 	"github.com/claudioed/product-master/internal/application/ports"
@@ -58,8 +57,12 @@ func fingerprint(r *http.Request, body []byte) string {
 //   - the same key with the same method, path and body replays the stored
 //     answer (status, headers, body) with Idempotency-Replayed: true, the
 //     same key with another request is 409 idempotency-key-reused;
-//   - 2xx and 4xx answers are stored; a 5xx or a panic rolls back and is
-//     never stored, so the retry re-executes.
+//   - whether an answer is stored is its replay class (ADR 0015): a 2xx is
+//     stored; a FINAL or OUTCOME refusal is stored and replayed; a RETRYABLE
+//     or unclassified refusal, a 5xx and a panic roll everything back, key
+//     row included, and are never stored, so the key can retry the real work.
+//     The class is read from the capturing writer (markReplay); the
+//     middleware holds no slug list and no status ranges beyond 2xx and 5xx.
 func requireIdempotencyKey(store ports.IdempotencyStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +80,14 @@ func requireIdempotencyKey(store ports.IdempotencyStore) func(http.Handler) http
 			var failed idempotency.StoredResponse
 			resp, replayed, err := store.Execute(r.Context(), key, fingerprint(r, body),
 				func(ctx context.Context) (idempotency.StoredResponse, error) {
-					out := capture(next, r.Clone(ctx), body)
-					if out.Status >= http.StatusInternalServerError {
+					rec := newCapture()
+					runHandler(rec, next, r.Clone(ctx), body)
+					out := rec.storedResponse()
+					if rec.releasesKey() {
+						// A 5xx, a panic's partial answer, or a refusal whose
+						// problem is RETRYABLE (or unclassified): nothing is
+						// stored, the store's rollback drops the key row and
+						// the handler's writes, and the retry re-executes.
 						failed = out
 						return out, idempotency.ErrNotStored
 					}
@@ -113,12 +122,74 @@ func readIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return keys[0], true
 }
 
-// capture runs next against a recorder, replaying body as the request body.
-func capture(next http.Handler, req *http.Request, body []byte) idempotency.StoredResponse {
+// capture records the handler's answer so it can be stored before anything
+// reaches the client. writeError tells it the replay class of the problem it
+// answered with (markReplay); the middleware reads it (releasesKey) and
+// nothing else does.
+type capture struct {
+	header http.Header
+	body   bytes.Buffer
+	status int
+	class  replayClass
+}
+
+// newCapture returns an empty capturing writer.
+func newCapture() *capture { return &capture{header: http.Header{}} }
+
+// replayMarker is what writeError tells the capturing writer: the replay
+// class of the problem it answers with. Any other writer ignores it.
+type replayMarker interface{ markReplay(replayClass) }
+
+// markReplay tells w the replay class of the problem being answered; a
+// writer that is not the middleware's capture ignores it.
+func markReplay(w http.ResponseWriter, class replayClass) {
+	if m, ok := w.(replayMarker); ok {
+		m.markReplay(class)
+	}
+}
+
+func (c *capture) markReplay(class replayClass) { c.class = class }
+
+func (c *capture) Header() http.Header { return c.header }
+
+func (c *capture) WriteHeader(code int) {
+	if c.status == 0 {
+		c.status = code
+	}
+}
+
+func (c *capture) Write(b []byte) (int, error) {
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	return c.body.Write(b)
+}
+
+// releasesKey reports whether the answer must NOT be remembered under its
+// key: a 5xx never is; a 2xx always is; anything else only when the class of
+// its problem is FINAL or OUTCOME. An unclassified answer (a handler that
+// wrote a bare status) is released — the fail-safe direction.
+func (c *capture) releasesKey() bool {
+	switch {
+	case c.status >= http.StatusInternalServerError:
+		return true
+	case c.status >= http.StatusOK && c.status < http.StatusMultipleChoices:
+		return false
+	default:
+		return !c.class.stored()
+	}
+}
+
+// storedResponse is the answer as the store keeps it.
+func (c *capture) storedResponse() idempotency.StoredResponse {
+	return idempotency.StoredResponse{Status: c.status, Header: c.header.Clone(), Body: c.body.Bytes()}
+}
+
+// runHandler runs next against the capturing writer rec, replaying body as
+// the request body.
+func runHandler(rec *capture, next http.Handler, req *http.Request, body []byte) {
 	req.Body = io.NopCloser(bytes.NewReader(body))
-	rec := httptest.NewRecorder()
 	next.ServeHTTP(rec, req)
-	return idempotency.StoredResponse{Status: rec.Code, Header: rec.Header().Clone(), Body: rec.Body.Bytes()}
 }
 
 // writeStored writes a first answer or a replay of one.

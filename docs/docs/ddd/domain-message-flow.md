@@ -26,6 +26,7 @@ sequenceDiagram
   participant WWP as wes-work-planning
   participant FE as fulfillment-execution
   participant SO as slotting-optimization
+  participant RP as returns-processing
   participant IR as inbound-receiving
   Steward->>PM: cmd: PUT /products/SKU-1 with a description
   Note over Steward,PM: 201, version 1
@@ -38,12 +39,13 @@ sequenceDiagram
   PM-->>WWP: evt: ProductClassified version 2
   PM-->>FE: evt: ProductClassified version 2
   PM-->>SO: evt: ProductClassified version 2
-  Note over INV,SO: each upserts its local copy only if version 2 is greater than the stored one
+  PM-->>RP: evt: ProductClassified version 2
+  Note over INV,RP: each upserts its local copy only if version 2 is greater than the stored one
 ```
 
 Source: `internal/adapters/inbound/http/handlers.go`,
 `internal/application/usecases/register_product.go`, `classify_product.go`,
-`internal/adapters/outbound/kafka/encoder.go`; the six consumers listed on
+`internal/adapters/outbound/kafka/encoder.go`; the consumers listed on
 [Downstream consumers](/docs/ecosystem/downstream-consumers).
 Omits: the outbox relay hop between the commit and Kafka (one topic, the
 fan-out is Kafka consumer groups), the analytics copy of each event, and the

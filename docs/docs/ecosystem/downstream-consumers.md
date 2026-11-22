@@ -6,22 +6,25 @@ sidebar_position: 1
 
 # Downstream consumers
 
-`product-master` is upstream of six contexts through its Published Language,
+`product-master` is upstream of nine contexts through its Published Language,
 `warehouse.product-master.events`. None of them calls this service at request
 time: each keeps a **local copy** keyed by SKU, fed by a Kafka consumer and
 guarded by `version` (ADR 0001, ADR 0003 stage D). The table reflects each
 consumer's code on its `develop` branch and its wiring in warehouse-infra
-`develop` (`terraform/apps.yaml` deploys all six; the values file named in the
+`develop` (`terraform/apps.yaml` deploys all nine; the values file named in the
 last column sets the switch).
 
 | Consumer | Types consumed | Consumer group env | Mode switch (binary) | Wired in warehouse-infra | What the copy is for | Its ADR |
 | --- | --- | --- | --- | --- | --- | --- |
-| `inventory-storage` (Core) | `com.warehouse.wms.product-master.product.ProductClassified` | `PRODUCT_MASTER_CONSUMER_GROUP` (unset = not started; needs `DATABASE_URL` and `KAFKA_BROKERS`) | none | yes: `productMasterConsumerGroup: inventory-storage-product-master` (`helm-values/inventory-storage.yaml`) | its existing `product_classifications` table, read by `StowStock` for placement (hazmat zone, temperature class) and same-bin DOT segregation | 0034 |
+| `inventory-storage` (Core) | `com.warehouse.wms.product-master.product.ProductClassified`, `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired` | `PRODUCT_MASTER_CONSUMER_GROUP` (one consumer for all three types; unset = not started; needs `DATABASE_URL` and `KAFKA_BROKERS`) | none | yes: `productMasterConsumerGroup: inventory-storage-product-master` (`helm-values/inventory-storage.yaml`) | its existing `product_classifications` table, read by `StowStock` for placement (hazmat zone, temperature class) and same-bin DOT segregation; the pack level types feed its local `PackagingView` | 0034, 0046 |
 | `order-management` (Generic/Supporting) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default); `http` is rejected at boot | yes: `productClassification.mode: kafka` (`helm-values/order-management.yaml`) | intake enrichment: derived product attributes for path eligibility routing | 0036 |
-| `wes-work-planning` (Core) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default) | yes: `PRODUCT_CLASSIFICATION_MODE=kafka` for `cmd/wes` and `cmd/mcp` (`helm-values/wes-work-planning.yaml`) | release-time capabilities and the fragile flag | 0035 |
-| `fulfillment-execution` (Core) | `...product.ProductClassified` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` (required) | `PRODUCT_CLASSIFICATION_MODE`: `kafka` (default) is the only mode; `permissive`, `off` and `http` are boot errors | yes: `PRODUCT_CLASSIFICATION_MODE=kafka` (`helm-values/fulfillment-execution.yaml`) | seal-time package segregation | 0039 |
-| `slotting-optimization` (Supporting) | `...product.ProductClassified`, `...product.ProductDimensionsDeclared`, `...product.ProductMeasured` | `PRODUCT_CONSUMER_GROUP` (required) | `PRODUCT_MODE`: `kafka` (default) is the only mode; `permissive` and `off` are boot errors | yes: `productMode: kafka`, `productConsumerGroup: slotting-optimization-product` (`helm-values/slotting-optimization.yaml`) | handling class and effective unit size (the physical profile) of each SKU for slot plans | 0003 |
-| `inbound-receiving` (Supporting) | `...product.ProductRegistered` | `PRODUCT_CONSUMER_GROUP` (required) | `PRODUCT_MODE`: `kafka` (default) is the only mode; `permissive` and `off` are boot errors | yes: `productMode: kafka`, `productConsumerGroup: inbound-receiving-product` (`helm-values/inbound-receiving.yaml`) | `known_skus`: an ASN line for an unknown SKU is rejected at registration | 0003 |
+| `wes-work-planning` (Core) | `...product.ProductClassified`, `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired`, `...product.ProductPackLevelMeasured` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` (`ProductClassified`); `PACK_VIEW_CONSUMER_GROUP` (pack level types, mandatory, must differ from the first) | `PRODUCT_CLASSIFICATION_MODE=kafka` or `permissive` (default) | yes: `PRODUCT_CLASSIFICATION_MODE=kafka` for `cmd/wes` and `cmd/mcp` (`helm-values/wes-work-planning.yaml`) | release-time capabilities and the fragile flag; the pack level types feed its local `PackView` | 0035, 0045 |
+| `fulfillment-execution` (Core) | `...product.ProductClassified`, `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired` | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` (required; `ProductClassified`); `PACK_VIEW_CONSUMER_GROUP` (required; pack level types, always on) | `PRODUCT_CLASSIFICATION_MODE`: `kafka` (default) is the only mode; `permissive`, `off` and `http` are boot errors | yes: `PRODUCT_CLASSIFICATION_MODE=kafka` (`helm-values/fulfillment-execution.yaml`) | seal-time package segregation; the pack level types feed its local `PackView` | 0039, 0054 |
+| `slotting-optimization` (Supporting) | `...product.ProductClassified`, `...product.ProductDimensionsDeclared`, `...product.ProductMeasured`, `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired`, `...product.ProductPackLevelMeasured` | `PRODUCT_CONSUMER_GROUP` (required; the first three types); `PACK_LEVEL_CONSUMER_GROUP` (required; pack level types) | `PRODUCT_MODE` and `PACK_LEVEL_MODE`: `kafka` (default) is the only mode; `permissive` and `off` are boot errors | yes: `productMode: kafka`, `productConsumerGroup: slotting-optimization-product`, `packLevelMode: kafka`, `packLevelConsumerGroup: slotting-optimization-pack-level` (`helm-values/slotting-optimization.yaml`) | handling class and effective unit size (the physical profile) of each SKU for slot plans; the pack level types feed its local `PackLevelView` | 0003, 0012 |
+| `inbound-receiving` (Supporting) | `...product.ProductRegistered`, `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired` | `PRODUCT_CONSUMER_GROUP` (required; `ProductRegistered`); `PACKAGING_CONSUMER_GROUP` (required; pack level types) | `PRODUCT_MODE`: `kafka` (default) is the only mode; `permissive` and `off` are boot errors | yes: `productMode: kafka`, `productConsumerGroup: inbound-receiving-product`, `packagingConsumerGroup: inbound-receiving-packaging` (`helm-values/inbound-receiving.yaml`) | `known_skus`: an ASN line for an unknown SKU is rejected at registration; the pack level types feed its packaging view | 0003, 0013 |
+| `pick-face-replenishment` (Supporting) | `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired` | `PACK_LEVEL_CONSUMER_GROUP` | `PACK_LEVEL_MODE`: `kafka` (default) is the only mode; `permissive` is rejected at boot | yes: `packLevelConsumerGroup: pick-face-replenishment-pack-levels` (`helm-values/pick-face-replenishment.yaml`) | its packaging view: the eaches factor per pack level that min/max and request quantities are converted with | 0009 |
+| `network-inventory-planning` (Core) | `...product.ProductPackLevelDeclared`, `...product.ProductPackLevelRetired` | `PACK_LEVEL_CONSUMER_GROUP` | none | yes: `packLevelConsumerGroup: network-inventory-planning-pack-level` (`helm-values/network-inventory-planning.yaml`) | its local `pack_levels` view (case-multiple transfers) | 0017 |
+| `returns-processing` (Supporting) | `...product.ProductClassified` (the only type it consumes) | `PRODUCT_CLASSIFICATION_CONSUMER_GROUP` (required) | none | yes: `productClassificationConsumerGroup: returns-processing-product-classification` (`helm-values/returns-processing.yaml`) | its `product_classifications` local copy: the hazmat flag, DOT hazard class and temperature class the disposition policy keys on | 0003 |
 
 Classifications of neighbours come from the warehouse-docs subdomain
 classification table.
@@ -45,16 +48,28 @@ and `cmd/execution/classification.go`;
 `slotting-optimization` `internal/adapters/inbound/kafka/product_consumer.go`
 and `cmd/api/main.go` (`consumerSpecs`);
 `inbound-receiving` `internal/adapters/inbound/kafka/product_consumer.go` and
-`cmd/api/main.go`.
+`cmd/api/main.go`; the pack level types are handled in
+`internal/adapters/inbound/kafka/packaging_consumer.go` (inbound-receiving),
+`product_master_consumer.go` (inventory-storage), `packlevel_consumer.go`
+(slotting-optimization), `productmaster_consumer.go` (pick-face-replenishment),
+`pack_level_consumer.go` (fulfillment-execution, network-inventory-planning and
+wes-work-planning, each in its own repository);
+`returns-processing` `internal/adapters/inbound/kafka/product_classes.go`.
 
 ## Events with no consumer, and unbuilt uses
 
 `ProductDescriptionChanged` is published but no sibling consumes it; every
-consumer above ignores it by type. The same holds for the three pack level
-types of ADR 0011 (`ProductPackLevelDeclared`, `ProductPackLevelRetired`,
-`ProductPackLevelMeasured`): published on the integration topic, no consumer yet.
-ADR 0011 names the ones that will build a projection; each must ignore them by
-type until then.
+consumer above ignores it by type.
+
+The three pack level types of ADR 0011 are consumed. `ProductPackLevelDeclared`
+and `ProductPackLevelRetired` are consumed by seven contexts: inbound-receiving,
+inventory-storage, slotting-optimization, pick-face-replenishment,
+fulfillment-execution, wes-work-planning and network-inventory-planning.
+`ProductPackLevelMeasured` is consumed by slotting-optimization and
+wes-work-planning; the other five ignore it by type. ADR 0011 also names
+`process-path-management`, `labor-performance` and `network-fulfillment` as
+consumers: none of them consumes a pack level type on `develop`
+(labor-performance ADR 0035 says so explicitly).
 
 The physical profile (`ProductDimensionsDeclared`, `ProductMeasured`) has one
 consumer, slotting-optimization. The other uses ADR 0002 names are still not
