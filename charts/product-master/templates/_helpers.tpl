@@ -87,6 +87,15 @@ Fully qualified name of the A2A agent Deployment/Service (<release>-a2a, ADR 001
 {{- include "product-master.fullname" . }}-a2a
 {{- end }}
 
+{{/* agents.colocate (warehouse-infra ADR 0012): "true" iff colocate, mcp and a2a are all on; else empty. */}}
+{{- define "product-master.agentsColocated" -}}
+{{- if and (.Values.agents | default dict).colocate .Values.mcp.enabled .Values.a2a.enabled }}true{{ end -}}
+{{- end }}
+
+{{- define "product-master.agentsFullname" -}}
+{{- printf "%s-agents" (include "product-master.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
 {{/*
 Fully qualified name of the analytics projector deployment (ADR 0006).
 */}}

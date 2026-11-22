@@ -429,6 +429,7 @@ jobs:
           pip install --require-hashes -r .github/requirements/chart-tests.txt
           python3 charts/product-master/tests/test_service_selectors.py
           python3 charts/product-master/tests/test_kong_config.py
+          python3 charts/product-master/tests/test_agents_colocation.py
 
   # web/ is `productmaster_mfe`, the Module Federation remote the
   # warehouse-console shell loads (mounted at /product-master/*, served at
